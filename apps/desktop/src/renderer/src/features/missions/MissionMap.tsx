@@ -5,6 +5,7 @@ import { mapActivity, stationFor } from './mapActivity'
 import { statusLabel } from './progress'
 import { PERSONA_NAMES } from './team'
 import { MemberDrawer } from './TeamRoster'
+import { DISTRICTS, DISTRICT_ORDER, type TownTarget } from './town/layout'
 import { TownStage } from './town/TownStage'
 import type { TownResident } from './town/world'
 import type { Mission } from './types'
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export function MissionMap({ mission, events, now, onReview }: Props) {
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<TownTarget | null>(null)
   const [cursor, setCursor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const settled = SETTLED.has(mission.status)
@@ -38,7 +39,9 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
   const eventCount = frame === null ? events.length : frames[frame - 1] ?? 0
   const visible = useMemo(() => replaying ? events.slice(0, eventCount) : events, [events, eventCount, replaying])
   const activity = useMemo(() => mapActivity(mission, visible, replaying), [mission, visible, replaying])
-  const member = activity.team.find((agent) => agent.id === selected)
+  const selectedResidentId = selected?.kind === 'resident' ? selected.id : null
+  const selectedPlace = selected?.kind === 'place' ? selected.id : null
+  const member = activity.team.find((agent) => agent.id === selectedResidentId)
   const viewingAt = replaying ? Date.parse(visible.at(-1)?.ts ?? mission.created_at) : now
   const residents = useMemo(() => {
     const known = new Map(activity.team.map((agent) => [agent.id, agent]))
@@ -59,7 +62,16 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
   }, [activity.team, mission.milestones, replaying])
   const checking = activity.pending.length > 0
   const town = useMemo(() => ({ residents, selected, checking }), [residents, selected, checking])
-  const selectedResident = residents.find((resident) => resident.id === selected)
+  const selectedResident = residents.find((resident) => resident.id === selectedResidentId)
+  const checkStatus = checking ? `Running ${[...new Set(activity.pending)].join(', ')}`
+    : activity.lastCheck ? `${activity.lastCheck.name} · ${activity.lastCheck.state}` : 'No checks recorded'
+  const handoffStatus = activity.handoff
+    ? `${activity.handoff.persona} · ${activity.handoff.title} · ${activity.handoff.files} changed`
+    : 'No handoff recorded'
+  const district = selectedPlace ? DISTRICTS[selectedPlace] : null
+  const placeMembers = selectedPlace
+    ? activity.team.filter((agent) => stationFor(agent.id) === selectedPlace && agent.steps.length > 0)
+    : []
 
   useEffect(() => {
     if (!playing || frame === null || frame >= end) return
@@ -69,6 +81,10 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
     }, REPLAY_STEP_MS)
     return () => window.clearTimeout(timer)
   }, [end, frame, playing])
+
+  const toggleTarget = (target: TownTarget) => {
+    setSelected((previous) => previous?.kind === target.kind && previous.id === target.id ? null : target)
+  }
 
   const startReplay = () => {
     setCursor(1)
@@ -89,7 +105,48 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
 
       <div className="mission-map__world">
         <TownStage snapshot={town} onInspect={setSelected} />
-        <div className="mission-map__residents">
+        <aside className="mission-map__guide" aria-label="Town guide">
+          <div className="mission-map__places">
+            <h4>Where work happens</h4>
+            <div className="mission-map__place-list" role="group" aria-label="Mission workflow">
+              {DISTRICT_ORDER.map((id) => {
+                const place = DISTRICTS[id]
+                const active = id === 'sandbox' ? checking : residents.some((resident) => resident.district === id && resident.state === 'working')
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className="mission-map__place"
+                    data-place={id}
+                    data-active={active}
+                    aria-pressed={selectedPlace === id}
+                    aria-label={place.name}
+                    onClick={() => toggleTarget({ kind: 'place', id })}
+                  >
+                    <span>{place.step}</span>
+                    <small>{place.name}</small>
+                  </button>
+                )
+              })}
+            </div>
+            {district && (
+              <section className="mission-map__place-detail" aria-label={district.name} data-place={selectedPlace}>
+                <h5>{district.name}</h5>
+                <p>{district.description}</p>
+                {selectedPlace === 'sandbox' && <p className="mission-map__result">{checkStatus}</p>}
+                {selectedPlace === 'build' && <p className="mission-map__result">{handoffStatus}</p>}
+                {selectedPlace === 'planning' && activity.milestoneTitle && (
+                  <p className="mission-map__result">Milestone · {activity.milestoneTitle}</p>
+                )}
+                {placeMembers.length > 0 && (
+                  <ul>
+                    {placeMembers.map((agent) => <li key={agent.id}><strong>{agent.name}</strong> {agent.doing}</li>)}
+                  </ul>
+                )}
+              </section>
+            )}
+          </div>
+
           <h4>Residents</h4>
           <div className="mission-map__roster">
             {residents.map((resident) => (
@@ -98,9 +155,9 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
                 type="button"
                 key={resident.id}
                 data-state={resident.state}
-                aria-pressed={selected === resident.id}
+                aria-pressed={selectedResidentId === resident.id}
                 aria-label={`${resident.name} · ${MEMBER_STATUS[resident.state]}`}
-                onClick={() => setSelected(selected === resident.id ? null : resident.id)}
+                onClick={() => toggleTarget({ kind: 'resident', id: resident.id })}
               >
                 <span>{resident.name}</span>
                 <small>{MEMBER_STATUS[resident.state]}</small>
@@ -109,9 +166,11 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
           </div>
           {member && <MemberDrawer member={member} now={viewingAt} onClose={() => setSelected(null)} autoScroll={false} />}
           {selectedResident && !member && <p className="mission-map__empty">No activity recorded for {selectedResident.name} yet.</p>}
-        </div>
+        </aside>
       </div>
-      <p className="mission-map__controls">Focus the town to walk with WASD or arrow keys. Press E near a resident, or click them to inspect.</p>
+      <p className="mission-map__controls">
+        <strong>You</strong> · Move with <kbd>WASD</kbd> or arrow keys. Click a person or room, or press <kbd>E</kbd> nearby to inspect.
+      </p>
 
       {replaying && (
         <div className="mission-map__replay">
@@ -139,17 +198,8 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
       )}
 
       <div className="mission-map__summary">
-        <div>
-          <strong>Test Lab</strong>
-          <span>{checking ? `Running ${[...new Set(activity.pending)].join(', ')}`
-            : activity.lastCheck ? `${activity.lastCheck.name} · ${activity.lastCheck.state}` : 'No checks recorded'}</span>
-        </div>
-        <div>
-          <strong>Latest handoff</strong>
-          <span>{activity.handoff
-            ? `${activity.handoff.persona} · ${activity.handoff.title} · ${activity.handoff.files} changed`
-            : 'No handoff recorded'}</span>
-        </div>
+        {selectedPlace !== 'sandbox' && <div><strong>Test Lab</strong><span>{checkStatus}</span></div>}
+        {selectedPlace !== 'build' && <div><strong>Latest handoff</strong><span>{handoffStatus}</span></div>}
         {activity.status === 'needs_user' && <strong className="mission-map__attention">Needs you</strong>}
         {!replaying && onReview && (
           <button className="button button--small" type="button" onClick={onReview}>Open mission diff</button>

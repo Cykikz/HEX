@@ -1,8 +1,8 @@
 import type Phaser from 'phaser'
 
 import {
-  COLUMNS, DISTRICTS, HOUSE_HEIGHT, HOUSE_WIDTH, ROWS, TILE, TOWN_HEIGHT, TOWN_WIDTH,
-  TREES, isBridge, isPath, isWater, type District
+  COLUMNS, DISTRICTS, DISTRICT_ORDER, HOUSE_HEIGHT, HOUSE_WIDTH, ROWS, TILE, TOWN_HEIGHT,
+  TOWN_WIDTH, TREES, isBridge, isPath, isWater, type District
 } from './layout'
 
 export const TERRAIN = 'town-tiles'
@@ -10,31 +10,22 @@ export const TERRAIN = 'town-tiles'
 const TREETOPS = [583, 585, 587]
 const TRUNKS = [640, 642, 644]
 const FLOWERS = [542, 544, 545, 546]
-const FACADES = {
-  planning: { wall: 0xdcc6a3, window: 102, columns: [1, 2, 5, 6] },
-  build: { wall: 0xd3a375, window: 96, columns: [1, 6] },
-  sandbox: { wall: 0xb8b5b3, window: 215, columns: [1, 2, 5, 6] },
-  review: { wall: 0xe0c487, window: 101, columns: [1, 6] }
-} satisfies Record<District, { wall: number; window: number; columns: number[] }>
-
 const TOWN_PROPS: readonly [number, number, number][] = [
   [5, 8, 541], [11, 8, 541], [25, 8, 541], [31, 8, 541], [5, 17, 541], [11, 17, 541],
   [25, 17, 541], [31, 17, 541], [14, 8, 416], [21, 8, 416], [14, 13, 416], [21, 13, 416],
   [32, 8, 26], [33, 8, 16], [33, 6, 26], [25, 12, 17], [31, 12, 42],
   [6, 1, 1360], [7, 1, 1360], [8, 1, 1360], [9, 1, 1360], [10, 1, 1360],
-  [3, 13, 565], [3, 15, 566], [15, 22, 565], [20, 22, 565],
-  [10, 19, 1310], [15, 19, 1309], [20, 19, 1310], [23, 19, 1309],
+  [15, 22, 565], [20, 22, 565], [10, 19, 1310], [15, 19, 1309], [20, 19, 1310], [23, 19, 1309],
   [34, 20, 1367], [2, 20, 1365]
 ]
-
 const GARDENS: readonly [number, number, number][] = [
   [2, 2, 6], [10, 1, 4], [23, 6, 4], [32, 6, 5], [4, 12, 6], [27, 12, 5], [3, 18, 5], [29, 18, 6]
 ]
 
-/** Bakes the ground, scenery and structures into one canvas texture. */
 export function paintTown(scene: Phaser.Scene) {
   const ground = scene.add.renderTexture(0, 0, TOWN_WIDTH, TOWN_HEIGHT).setOrigin(0)
   const tile = (frame: number, x: number, y: number) => ground.drawFrame(TERRAIN, frame, x * TILE, y * TILE)
+  const ink = scene.add.graphics()
 
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLUMNS; x++) {
@@ -42,52 +33,52 @@ export function paintTown(scene: Phaser.Scene) {
       if (isBridge(x, y)) {
         tile(177, x, y)
       } else if (isWater(x, y)) {
-        const shoreAbove = !isWater(x, y - 1)
-        const shoreBelow = !isWater(x, y + 1)
-        tile(shoreAbove ? 3 : shoreBelow ? 117 : noise < 8 ? 1 : 0, x, y)
+        tile(!isWater(x, y - 1) ? 3 : !isWater(x, y + 1) ? 117 : noise < 8 ? 1 : 0, x, y)
       } else if (isPath(x, y)) {
         const plaza = x >= 14 && x <= 21 && y >= 8 && y <= 13
         tile(plaza ? 7 : noise < 6 ? 65 : 8, x, y)
+        if (!isPath(x, y + 1)) ink.fillStyle(0x433826, 0.18).fillRect(x * TILE, (y + 1) * TILE - 2, TILE, 2)
       } else {
         tile(noise < 6 ? 62 : 5, x, y)
+        ink.fillStyle(noise < 12 ? 0x526f50 : 0x507c54, 0.2).fillRect(x * TILE, y * TILE, TILE, TILE)
         if (noise === 9) tile(528, x, y)
       }
     }
   }
+  ground.draw(ink)
+  ink.clear()
 
   for (const [left, y, count] of GARDENS) {
     for (let offset = 0; offset < count; offset++) tile(FLOWERS[(left + offset) % FLOWERS.length], left + offset, y)
   }
-
   for (const [x, y, kind] of TREES) {
+    ink.fillStyle(0x253b31, 0.2).fillEllipse(x * TILE + 9, y * TILE + 13, 23, 7)
+    ground.draw(ink)
+    ink.clear()
     tile(TREETOPS[kind], x, y - 1)
     tile(TRUNKS[kind], x, y)
   }
-
   for (const [x, y, frame] of TOWN_PROPS) tile(frame, x, y)
+  for (const [x, y, frame] of [[17, 10, 173], [18, 10, 175], [17, 11, 287], [18, 11, 289]]) tile(frame, x, y)
 
-  const sites = Object.entries(DISTRICTS) as [District, (typeof DISTRICTS)[District]][]
-  const architecture = scene.add.graphics()
-  for (const [district, site] of sites) drawHouse(architecture, district, site)
-  ground.draw(architecture)
-  architecture.destroy()
-
-  for (const [district, site] of sites) {
-    const facade = FACADES[district]
-    for (const windowX of facade.columns) tile(facade.window, site.x + windowX, site.y + 3)
-    scene.add.text((site.x + HOUSE_WIDTH / 2) * TILE, site.y * TILE + 16, site.name, {
-      fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: '#fff6db',
-      backgroundColor: '#27353a', padding: { left: 4, right: 4, top: 3, bottom: 3 }
-    }).setOrigin(0.5, 0).setDepth(1)
+  ink.fillStyle(0xc0e4db).fillRect(17 * TILE + 13, 10 * TILE + 14, 7, 7)
+  ink.fillStyle(0xdef6ee).fillRect(17 * TILE + 16, 10 * TILE + 10, 2, 6)
+  ink.fillStyle(0x654b38).fillRect(16 * TILE, 19 * TILE, 3, 48).fillRect(20 * TILE - 3, 19 * TILE, 3, 48)
+  for (let y = 19 * TILE; y < 22 * TILE; y += 8) {
+    ink.fillStyle(0x624735, 0.24).fillRect(16 * TILE + 3, y + 2, 58, 1)
   }
 
-  // The central fountain occupies the same four blocked cells used by both players and routes.
-  for (const [x, y, frame] of [[17, 10, 173], [18, 10, 175], [17, 11, 287], [18, 11, 289]]) tile(frame, x, y)
-  const fountain = scene.add.graphics()
-  fountain.fillStyle(0xc0e4db).fillRect(17 * TILE + 13, 10 * TILE + 14, 7, 7)
-  fountain.fillStyle(0xdef6ee).fillRect(17 * TILE + 16, 10 * TILE + 10, 2, 6)
-  ground.draw(fountain)
-  fountain.destroy()
+  for (const district of DISTRICT_ORDER) paintWorkplace(ink, district)
+  ground.draw(ink)
+  ink.destroy()
+
+  for (const district of DISTRICT_ORDER) {
+    const site = DISTRICTS[district]
+    scene.add.text((site.x + HOUSE_WIDTH / 2) * TILE, site.y * TILE + 1, site.name, {
+      fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: site.color,
+      backgroundColor: '#192924', padding: { left: 4, right: 4, top: 3, bottom: 2 }
+    }).setOrigin(0.5, 0).setDepth(1)
+  }
 
   const ripples = scene.add.graphics()
   ripples.fillStyle(0xe2f4e8, 0.48)
@@ -99,54 +90,123 @@ export function paintTown(scene: Phaser.Scene) {
   scene.tweens.add({ targets: ripples, alpha: 0.35, y: 2, duration: 1700, yoyo: true, repeat: -1 })
 }
 
-function drawHouse(gfx: Phaser.GameObjects.Graphics, district: District, site: (typeof DISTRICTS)[District]) {
+const WALLS = {
+  planning: { edge: 0x415f4c, trim: 0x9ebe96, floor: 0xb38355, grain: 0x986942 },
+  build: { edge: 0x544747, trim: 0xdc9b64, floor: 0x867d72, grain: 0x746b65 },
+  sandbox: { edge: 0x3c485e, trim: 0x9b9abf, floor: 0x637590, grain: 0x546781 },
+  review: { edge: 0x435761, trim: 0x9abac3, floor: 0xb7a48c, grain: 0x9e8979 }
+}
+
+type Paint = (color: number, x: number, y: number, w: number, h: number) => void
+
+function paintWorkplace(gfx: Phaser.GameObjects.Graphics, district: District) {
+  const site = DISTRICTS[district]
   const x = site.x * TILE
   const y = site.y * TILE
   const width = HOUSE_WIDTH * TILE
   const height = HOUSE_HEIGHT * TILE
-  const eaves = height - TILE - 3
+  const wall = WALLS[district]
+  const paint: Paint = (color, left, top, w, h) => { gfx.fillStyle(color).fillRect(x + left, y + top, w, h) }
 
-  gfx.fillStyle(0x1d302e, 0.32).fillRect(x + 4, y + 8, width + 4, height)
-  gfx.fillStyle(0x374139).fillRect(x, y + 7, width, height - 7)
-  gfx.fillStyle(FACADES[district].wall).fillRect(x + 3, y + eaves - 3, width - 6, height - eaves)
-  gfx.fillStyle(0xb08a62).fillRect(x + 3, y + height - 7, width - 6, 5)
+  gfx.fillStyle(0x283b31, 0.34).fillRect(x + 5, y + 6, width + 2, height + 4)
+  paint(0x29332e, 0, 0, width, height)
+  paint(wall.floor, 4, 13, width - 8, height - 17)
+  for (let row = 16; row < height - 4; row += 5) {
+    paint(wall.grain, 4, row, width - 8, 1)
+    for (let joint = 9 + (row % 3) * 9; joint < width - 5; joint += 27) paint(wall.grain, joint, row - 3, 1, 3)
+  }
+  paint(wall.edge, 2, 2, width - 4, 10)
+  paint(wall.trim, 3, 3, width - 6, 2)
+  paint(wall.edge, 1, 8, 3, height - 9)
+  paint(wall.edge, width - 4, 8, 3, height - 9)
+  paint(wall.edge, 2, height - 5, 51, 4)
+  paint(wall.edge, 75, height - 5, 51, 4)
+  paint(wall.trim, 53, height - 4, 22, 2)
+  fixtures[district](paint)
+}
 
-  // Stepped shoulders and individually offset courses give each roof a pixel-art silhouette.
-  gfx.fillStyle(0x243535).fillRect(x - 2, y + eaves - 5, width + 4, 7)
-  for (let row = 0; row < 8; row++) {
-    const inset = Math.max(0, 12 - row * 3)
-    const top = y + 3 + row * 5
-    const left = x + inset
-    const length = width - inset * 2
-    gfx.fillStyle(site.roof).fillRect(left, top, length, 5)
-    gfx.fillStyle(site.trim, 0.45).fillRect(left, top, length, 1)
-    gfx.fillStyle(0x23363d, 0.28)
-    for (let shingle = left + (row % 2) * 5 + 5; shingle < left + length - 3; shingle += 10) {
-      gfx.fillRect(shingle, top + 2, 1, 3)
+const fixtures: Record<District, (paint: Paint) => void> = {
+  planning(paint) {
+    paint(0x315043, 20, 12, 88, 17)
+    paint(0x4f7261, 22, 14, 84, 13)
+    for (const left of [27, 52, 78]) {
+      paint(0xa4c6ae, left, 16, 20, 2)
+      paint(0xffd897, left + 1, 20, 4, 5)
+      paint(0xa6dbcf, left + 7, 20, 4, 5)
+      paint(0xeaa397, left + 13, 20, 4, 5)
     }
+    desk(paint, 13, 35, 33)
+    desk(paint, 82, 35, 33)
+    paint(0xc48d66, 54, 34, 20, 16)
+    paint(0xdba878, 55, 35, 18, 9)
+    paint(0xf6e3b8, 61, 37, 7, 5)
+    paint(0x688d63, 7, 18, 9, 8)
+    paint(0x9fc480, 9, 17, 5, 4)
+  },
+  build(paint) {
+    paint(0x664f44, 8, 12, 112, 9)
+    for (let pos = 10; pos < 115; pos += 13) {
+      paint(0xcda97a, pos, 13, 7, 1)
+      paint(0xd6cfb9, pos + 2, 15, 2, 4)
+    }
+    desk(paint, 11, 25, 46)
+    desk(paint, 71, 25, 46)
+    paint(0x906037, 9, 49, 30, 10)
+    paint(0xd19d5e, 10, 48, 28, 7)
+    paint(0xffcf83, 19, 50, 1, 5)
+    paint(0xffcf83, 30, 50, 1, 5)
+    for (let pos = 46; pos < 81; pos += 6) {
+      paint(0x59433d, pos, 49, 3, 5)
+      paint(0xe7a35f, pos + 3, 49, 3, 5)
+    }
+  },
+  sandbox(paint) {
+    for (const rack of [10, 28, 46, 102]) {
+      paint(0x263447, rack, 14, 14, 28)
+      paint(0x576a80, rack + 1, 15, 12, 2)
+      for (let tier = 0; tier < 4; tier++) {
+        paint(0x151f2e, rack + 2, 19 + tier * 5, 10, 3)
+        paint(tier % 2 ? 0x77acd6 : 0x8fceaa, rack + 4, 20 + tier * 5, 2, 1)
+      }
+    }
+    paint(0x313c56, 66, 15, 29, 17)
+    paint(0x8a9ac8, 68, 17, 25, 12)
+    paint(0x293b58, 70, 19, 21, 8)
+    paint(0xc0b5f1, 73, 21, 14, 1)
+    paint(0x9bc7df, 73, 24, 9, 1)
+    paint(0x465677, 73, 33, 14, 2)
+    paint(0x7e8fb2, 8, 49, 34, 6)
+    paint(0x7e8fb2, 87, 49, 31, 6)
+  },
+  review(paint) {
+    paint(0x557282, 34, 20, 60, 35)
+    paint(0x6d8b97, 35, 21, 58, 33)
+    paint(0x5b4a41, 38, 25, 52, 21)
+    paint(0xab7958, 40, 25, 48, 17)
+    for (const page of [46, 59, 73]) {
+      paint(0xf7e9c8, page, 29, 9, 8)
+      paint(0xb4a7a3, page + 2, 32, 5, 1)
+      paint(0xb4a7a3, page + 2, 34, 4, 1)
+    }
+    paint(0x6c5954, 49, 46, 11, 7)
+    paint(0x6c5954, 68, 46, 11, 7)
+    paint(0x76645a, 11, 15, 20, 19)
+    paint(0xd4b489, 13, 16, 16, 15)
+    for (let line = 0; line < 3; line++) {
+      paint(0x83a794, 16, 19 + line * 4, 3, 2)
+      paint(0xede1bd, 21, 19 + line * 4, 6, 1)
+    }
+    paint(0x5a7a6d, 106, 17, 10, 11)
+    paint(0x9fc18f, 108, 16, 6, 6)
   }
-  gfx.fillStyle(site.trim).fillRect(x + 11, y + 2, width - 22, 2)
-  const door = x + width / 2
-  gfx.fillStyle(0x374139).fillRect(door - 10, y + eaves + 3, 20, 15)
-  gfx.fillStyle(0x6b5945).fillRect(door - 8, y + eaves + 5, 16, 13)
-  gfx.fillStyle(0x96816a).fillRect(door - 7, y + eaves + 5, 14, 2)
-  gfx.fillStyle(0xe6c17e).fillRect(door + 4, y + eaves + 11, 2, 2)
-  gfx.fillStyle(0x8b8274).fillRect(door - 12, y + height, 24, 2)
+}
 
-  if (district === 'build') {
-    gfx.fillStyle(0x613a36).fillRect(x + width - 22, y - 7, 14, 20)
-    gfx.fillStyle(0xc88c68).fillRect(x + width - 24, y - 9, 18, 3)
-  } else if (district === 'sandbox') {
-    gfx.fillStyle(0xb2a6bf).fillRect(x + 18, y + 11, 25, 13)
-    gfx.fillStyle(0x635e9b).fillRect(x + 20, y + 13, 21, 9)
-    gfx.fillStyle(0x83d5ce).fillRect(x + 22, y + 14, 7, 7).fillRect(x + 31, y + 14, 8, 7)
-  } else if (district === 'review') {
-    gfx.fillStyle(0x264560).fillRect(door - 19, y + eaves + 1, 38, 6)
-    gfx.fillStyle(0x9ab7bc).fillRect(door - 18, y + eaves + 1, 36, 2)
-    gfx.fillStyle(0x464c49).fillRect(door - 18, y + eaves + 7, 3, 11).fillRect(door + 15, y + eaves + 7, 3, 11)
-  } else {
-    gfx.fillStyle(0xe7d9b3).fillRect(door - 15, y + eaves + 2, 3, 16).fillRect(door + 12, y + eaves + 2, 3, 16)
-    gfx.fillStyle(0xb1c8a0).fillRect(door - 15, y + eaves + 1, 30, 3)
-  }
-  gfx.fillStyle(site.trim).fillRect(x - 2, y + eaves - 4, width + 4, 2)
+function desk(paint: Paint, x: number, y: number, width: number) {
+  paint(0x654836, x, y + 2, width, 14)
+  paint(0xb38154, x, y, width, 10)
+  paint(0xe0ad73, x + 1, y, width - 2, 2)
+  paint(0x304349, x + 4, y - 4, 12, 9)
+  paint(0x8dc3b3, x + 5, y - 3, 10, 5)
+  paint(0xf0ddba, x + width - 11, y + 3, 7, 4)
+  paint(0x53595b, x + 6, y + 12, 9, 5)
 }

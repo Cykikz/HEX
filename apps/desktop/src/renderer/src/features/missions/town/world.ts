@@ -2,8 +2,8 @@ import Phaser from 'phaser'
 
 import type { MemberState } from '../team'
 import {
-  COMMONS, DISTRICTS, PLAYER_SPAWN, TILE, TOWN_HEIGHT, TOWN_WIDTH, cell, center,
-  destination, findTownRoute, indexOf, walkable, type District, type Point
+  COMMONS, DISTRICTS, DISTRICT_ORDER, HOUSE_HEIGHT, HOUSE_WIDTH, PLAYER_SPAWN, TILE, TOWN_HEIGHT, TOWN_WIDTH, cell, center,
+  destination, findTownRoute, indexOf, walkable, type District, type Point, type TownTarget
 } from './layout'
 import { paintTown, TERRAIN } from './scenery'
 import terrainUrl from './town-tiles.png'
@@ -25,13 +25,13 @@ const SIGNALS: Record<MemberState, number> = {
 type Direction = (typeof DIRECTIONS)[number]
 
 export interface TownResident { id: string; name: string; state: MemberState; district: District }
-export interface TownSnapshot { residents: TownResident[]; selected: string | null; checking: boolean }
+export interface TownSnapshot { residents: TownResident[]; selected: TownTarget | null; checking: boolean }
 export interface TownInput { keys: Set<string>; inspect: boolean }
 
 interface Bridge {
   snapshot(): TownSnapshot
   input: TownInput
-  onInspect(id: string): void
+  onInspect(target: TownTarget): void
   onReady(): void
 }
 
@@ -75,6 +75,8 @@ class TownScene extends Phaser.Scene {
   private residents = new Map<string, Resident>()
   private selectedRing!: Phaser.GameObjects.Ellipse
   private districtSignals = new Map<District, Phaser.GameObjects.Arc>()
+  private districtFrames = new Map<District, Phaser.GameObjects.Rectangle>()
+  private hoveredPlace: District | null = null
   private snapshot: TownSnapshot | null = null
 
   constructor(private readonly bridge: Bridge) {
@@ -92,9 +94,15 @@ class TownScene extends Phaser.Scene {
     this.player = this.createWalker(center(PLAYER_SPAWN), 0, 'You')
     this.player.signal.setVisible(false)
     this.selectedRing = this.add.ellipse(0, 0, 18, 8).setStrokeStyle(1, 0xffe1a4).setVisible(false)
-    for (const district of Object.keys(DISTRICTS) as District[]) {
+    for (const district of DISTRICT_ORDER) {
       const site = DISTRICTS[district]
-      const signal = this.add.circle((site.x + 6.9) * TILE, site.y * TILE + 16, 3, 0xe8f0a8).setDepth(4)
+      const frame = this.add.rectangle(site.x * TILE, site.y * TILE, HOUSE_WIDTH * TILE, HOUSE_HEIGHT * TILE)
+        .setOrigin(0).setDepth(3).setInteractive({ useHandCursor: true })
+      frame.on('pointerover', () => { this.hoveredPlace = district })
+      frame.on('pointerout', () => { if (this.hoveredPlace === district) this.hoveredPlace = null })
+      frame.on('pointerdown', () => this.bridge.onInspect({ kind: 'place', id: district }))
+      this.districtFrames.set(district, frame)
+      const signal = this.add.circle((site.x + 7.52) * TILE, site.y * TILE + 7, 2.5, 0xe8f0a8).setDepth(4)
       this.districtSignals.set(district, signal)
       this.tweens.add({ targets: signal, scale: 1.5, duration: 650, repeat: -1, yoyo: true })
     }
@@ -110,7 +118,12 @@ class TownScene extends Phaser.Scene {
     this.movePlayer(elapsed)
     for (const resident of this.residents.values()) this.moveResident(resident, time, elapsed)
 
-    const selected = snapshot.selected ? this.residents.get(snapshot.selected) : null
+    for (const [id, frame] of this.districtFrames) {
+      const selected = snapshot.selected?.kind === 'place' && snapshot.selected.id === id
+      const alpha = selected ? 1 : this.hoveredPlace === id ? 0.7 : 0
+      frame.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(DISTRICTS[id].color).color, alpha)
+    }
+    const selected = snapshot.selected?.kind === 'resident' ? this.residents.get(snapshot.selected.id) : null
     this.selectedRing.setVisible(Boolean(selected))
     if (selected) this.selectedRing.setPosition(selected.sprite.x, selected.sprite.y + 1).setDepth(30 + selected.sprite.y)
     if (this.bridge.input.inspect) {
@@ -141,8 +154,8 @@ class TownScene extends Phaser.Scene {
       if (!resident) {
         const skin = PORTRAITS[activity.id] ?? 1 + (slot % 5)
         const walker = this.createWalker(center(COMMONS[slot % COMMONS.length]), skin, activity.name)
-        walker.sprite.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect(activity.id))
-        walker.label.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect(activity.id))
+        walker.sprite.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect({ kind: 'resident', id: activity.id }))
+        walker.label.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect({ kind: 'resident', id: activity.id }))
         resident = {
           ...walker, slot, route: [], target: null, restUntil: time + 1700 + slot * 500,
           nextStop: slot + 2, state: 'idle'
@@ -229,13 +242,18 @@ class TownScene extends Phaser.Scene {
   }
 
   private inspectNearby() {
-    let closest: string | null = null
+    let closest: TownTarget | null = null
     let range = TILE * 2
-    for (const [id, resident] of this.residents) {
-      const distance = Phaser.Math.Distance.Between(this.player.sprite.x, this.player.sprite.y, resident.sprite.x, resident.sprite.y)
-      if (distance >= range) continue
+    const consider = (target: TownTarget, x: number, y: number) => {
+      const distance = Phaser.Math.Distance.Between(this.player.sprite.x, this.player.sprite.y, x, y)
+      if (distance >= range) return
       range = distance
-      closest = id
+      closest = target
+    }
+    for (const [id, resident] of this.residents) consider({ kind: 'resident', id }, resident.sprite.x, resident.sprite.y)
+    for (const id of DISTRICT_ORDER) {
+      const door = center(DISTRICTS[id].door)
+      consider({ kind: 'place', id }, door.x, door.y)
     }
     if (closest) this.bridge.onInspect(closest)
   }

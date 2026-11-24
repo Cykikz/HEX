@@ -443,6 +443,16 @@ describe('MissionScreen: agent map', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show agent map' }))
     const map = within(screen.getByRole('region', { name: 'Agent map' }))
     expect(map.getByText('Running test')).toBeInTheDocument()
+    fireEvent.click(map.getByRole('button', { name: 'Test Lab' }))
+    const lab = within(map.getByRole('region', { name: 'Test Lab' }))
+    expect(lab.getByText(/automated checks in the sandbox/)).toBeInTheDocument()
+    expect(lab.getByText('Running test')).toBeInTheDocument()
+
+    fireEvent.click(map.getByRole('button', { name: 'Review Office' }))
+    const review = within(map.getByRole('region', { name: 'Review Office' }))
+    expect(review.getByText('Validating Filter')).toBeInTheDocument()
+    expect(review.queryByText('Running test')).toBeNull()
+
     fireEvent.click(map.getByRole('button', { name: 'QA · Working' }))
     const drawer = within(map.getByRole('complementary', { name: 'QA: what it did' }))
     expect(drawer.getByText('Checking milestone m2-b')).toBeInTheDocument()

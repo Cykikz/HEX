@@ -7,12 +7,28 @@ export const TOWN_HEIGHT = ROWS * TILE
 export interface Point { x: number; y: number }
 export type District = 'planning' | 'build' | 'sandbox' | 'review'
 
+export type TownTarget = { kind: 'place'; id: District } | { kind: 'resident'; id: string }
+
+export const DISTRICT_ORDER = ['planning', 'build', 'sandbox', 'review'] as const
+
 export const DISTRICTS = {
-  planning: { name: 'Planning Hall', x: 4, y: 2, door: { x: 8, y: 7 }, roof: 0x326c60, trim: 0x79b5a5 },
-  build: { name: 'Workshop', x: 24, y: 2, door: { x: 28, y: 7 }, roof: 0xad5a46, trim: 0xeaaa74 },
-  sandbox: { name: 'Test Lab', x: 4, y: 13, door: { x: 8, y: 17 }, roof: 0x655784, trim: 0xafa1cb },
-  review: { name: 'Review House', x: 24, y: 13, door: { x: 28, y: 17 }, roof: 0x355f80, trim: 0x83b9d5 }
-} satisfies Record<District, { name: string; x: number; y: number; door: Point; roof: number; trim: number }>
+  planning: {
+    name: 'Planning Office', step: 'Plan', color: '#95d7b2', x: 4, y: 2, door: { x: 8, y: 7 },
+    description: 'The PM turns the request into milestones and assigns features to the team.'
+  },
+  build: {
+    name: 'Build Workshop', step: 'Build', color: '#f3bd7f', x: 24, y: 2, door: { x: 28, y: 7 },
+    description: 'Engineers edit assigned features and hand off their changed files.'
+  },
+  sandbox: {
+    name: 'Test Lab', step: 'Test', color: '#bcb5ed', x: 4, y: 13, door: { x: 8, y: 17 },
+    description: 'HEX runs automated checks in the sandbox and records which passed or failed.'
+  },
+  review: {
+    name: 'Review Office', step: 'Review', color: '#9ed3e9', x: 24, y: 13, door: { x: 28, y: 17 },
+    description: 'QA, Reviewer, and Security validate the work and flag issues that need attention.'
+  }
+} satisfies Record<District, { name: string; step: string; color: string; description: string; x: number; y: number; door: Point }>
 
 export const HOUSE_WIDTH = 8
 export const HOUSE_HEIGHT = 4

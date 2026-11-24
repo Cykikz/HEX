@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
+import type { TownTarget } from './layout'
 import type { TownInput, TownSnapshot } from './world'
 
 const MOVEMENT = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'])
 
 interface Props {
   snapshot: TownSnapshot
-  onInspect(id: string): void
+  onInspect(target: TownTarget): void
 }
 
 export function TownStage({ snapshot, onInspect }: Props) {
@@ -35,7 +36,7 @@ export function TownStage({ snapshot, onInspect }: Props) {
       game = openTown(parent, {
         snapshot: () => model.current,
         input: input.current,
-        onInspect: (id) => inspect.current(id),
+        onInspect: (target) => inspect.current(target),
         onReady: () => { if (!disposed) setState('ready') }
       })
     }).catch(() => { if (!disposed) setState('unavailable') })
@@ -51,7 +52,7 @@ export function TownStage({ snapshot, onInspect }: Props) {
       ref={viewport}
       tabIndex={0}
       role="region"
-      aria-label="HEX Town. Use WASD or arrow keys to walk. Press E near a resident to inspect their activity."
+      aria-label="HEX Town. Use WASD or arrow keys to walk. Press E near a person or a doorway to inspect it."
       data-state={state}
       onPointerDown={() => viewport.current?.focus({ preventScroll: true })}
       onKeyDown={(event) => {
