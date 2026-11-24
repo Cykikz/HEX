@@ -1,5 +1,4 @@
 .mission-map {
-  container-type: inline-size;
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -32,13 +31,6 @@
   color: var(--text-muted);
 }
 
-.mission-map__world {
-  display: grid;
-  align-items: start;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-
 .town-view {
   display: grid;
   min-width: 0;
@@ -57,6 +49,17 @@
   color: var(--text-muted);
   text-align: center;
   font: 11px var(--font-mono);
+}
+
+.town-view__select {
+  min-width: 110px;
+  max-width: 185px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface-2);
+  font: 12px var(--font-ui);
 }
 
 .town-view__toolbar [aria-pressed='true'] {
@@ -87,6 +90,7 @@
   min-width: 0;
   width: 100%;
   aspect-ratio: 576 / 368;
+  max-height: min(72vh, 700px);
   overflow: hidden;
   border: 2px solid #323d34;
   border-radius: 6px;
@@ -118,92 +122,52 @@
   font: 13px var(--font-mono);
 }
 
-.mission-map__guide {
-  min-width: 0;
-  min-height: 0;
+.town-stage__canvas {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
 }
 
-.mission-map__guide h4 {
-  margin: 0 0 7px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
+.town-stage[data-dragging='true'] canvas { cursor: grabbing !important; }
 
-.mission-map__places {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 13px;
-}
-
-.mission-map__place-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
-  gap: 5px;
-}
-
-[data-place='planning'] { --place-accent: #95d7b2; }
-[data-place='build'] { --place-accent: #f3bd7f; }
-[data-place='sandbox'] { --place-accent: #bcb5ed; }
-[data-place='review'] { --place-accent: #9ed3e9; }
-
-.mission-map__place {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 5px;
-  min-height: 30px;
-  padding: 5px 7px;
+.town-popup {
+  box-sizing: border-box;
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  width: min(310px, calc(100% - 16px));
+  max-height: min(330px, calc(100% - 16px));
+  padding: 10px 12px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--place-accent);
-  border-radius: 4px;
-  background: var(--surface-2);
+  border-radius: 8px;
   color: var(--text);
-  text-align: left;
-  cursor: pointer;
-}
-
-.mission-map__place > span {
-  color: var(--place-accent);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.mission-map__place > small {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.mission-map__place:hover,
-.mission-map__place[aria-pressed='true'] { border-color: var(--place-accent); }
-.mission-map__place:focus-visible { outline: 2px solid var(--place-accent); }
-.mission-map__place[data-active='true'] > span::after {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  margin: 0 0 2px 4px;
-  border-radius: 50%;
-  background: var(--place-accent);
-  content: '';
-}
-
-.mission-map__place-detail {
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-top-color: var(--place-accent);
-  border-radius: 4px;
   background: var(--surface-0);
-  font-size: 12px;
-  line-height: 1.45;
+  box-shadow: 0 6px 24px #04080bc9;
+  transform: translate3d(8px, 8px, 0);
 }
 
-.mission-map__place-detail h5,
-.mission-map__place-detail p { margin: 0 0 5px; }
-.mission-map__place-detail h5 { color: var(--place-accent); font-size: 12px; }
-.mission-map__place-detail p { color: var(--text-muted); }
+.town-popup__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.town-popup__header h4 { margin: 0; font-size: 14px; }
+.town-popup > .member-drawer { margin: 0; padding: 0; border: 0; background: transparent; }
+.town-popup .member-drawer__steps { max-height: none; overflow: visible; }
+
+.mission-map__place-detail { font-size: 12px; line-height: 1.45; }
+.mission-map__place-detail p { margin: 0 0 6px; color: var(--text-muted); }
 .mission-map__place-detail .mission-map__result { color: var(--text); }
 .mission-map__place-detail > :last-child { margin-bottom: 0; }
 .mission-map__place-detail ul { margin: 5px 0 0; padding-left: 16px; }
+.mission-map__empty { margin: 0; color: var(--text-muted); font-size: 12px; }
 
 .mission-map__controls kbd,
 .town-stage__nearby kbd {
@@ -214,74 +178,12 @@
   font: 11px var(--font-mono);
 }
 
-.mission-map__roster {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
-  gap: 5px;
-}
-
-.mission-map__resident {
-  --resident-status: #b6a785;
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 7px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  background: var(--surface-2);
-  cursor: pointer;
-  text-align: left;
-  font-size: 12px;
-}
-
-.mission-map__resident:hover,
-.mission-map__resident[aria-pressed='true'] { border-color: var(--resident-status); }
-.mission-map__resident:focus-visible { outline: 2px solid var(--accent-hover); }
-
-.mission-map__resident::before {
-  flex: 0 0 6px;
-  height: 6px;
-  content: '';
-  background: var(--resident-status);
-}
-
-.mission-map__resident[data-state='working'] { --resident-status: #93d889; }
-.mission-map__resident[data-state='done'] { --resident-status: #99c9e9; }
-.mission-map__resident[data-state='failed'] { --resident-status: #f6aa95; }
-
-.mission-map__resident span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mission-map__resident small {
-  margin-left: auto;
-  color: var(--text-muted);
-  white-space: nowrap;
-  font-size: 10px;
-}
-
-.mission-map .member-drawer { margin-top: 8px; }
-.mission-map .member-drawer__steps { max-height: 170px; }
-.mission-map__empty { color: var(--text-muted); font-size: 12px; }
-
 .mission-map__summary {
   padding-top: 10px;
   border-top: 1px solid var(--border);
   font-size: 12px;
 }
 
-.mission-map__summary > div { display: grid; gap: 3px; }
-.mission-map__summary span { color: var(--text-muted); }
 .mission-map__attention { color: var(--danger); }
 .mission-map__replay { font-size: 12px; }
 .mission-map__replay input { flex: 1 1 100px; min-width: 0; }
-
-@container (min-width: 900px) {
-  .mission-map__world { grid-template-columns: minmax(0, 1fr) minmax(190px, 20%); }
-  .mission-map__place-list,
-  .mission-map__roster { grid-template-columns: minmax(0, 1fr); }
-  .mission-map .member-drawer__steps li { grid-template-columns: 1fr; gap: 2px; }
-}

@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 
 import type { MemberState } from '../team'
+import { clampCenter, TOWN_CENTER, type TownCamera } from './camera'
 import {
   COMMONS, DISTRICTS, DISTRICT_ORDER, HOUSE_HEIGHT, HOUSE_WIDTH, PLAYER_SPAWN, TILE, TOWN_HEIGHT, TOWN_WIDTH, canStand, cell, center,
   destination, findTownRoute, indexOf, roomAt, type District, type Point, type TownTarget
@@ -25,13 +26,20 @@ type Direction = (typeof DIRECTIONS)[number]
 
 export interface TownResident { id: string; name: string; state: MemberState; district: District }
 export interface TownSnapshot { residents: TownResident[]; selected: TownTarget | null; checking: boolean }
-export interface TownCamera { zoom: number; followSelection: boolean }
-export interface TownInput { keys: Set<string>; inspect: boolean; camera: TownCamera }
+export interface TownInput {
+  keys: Set<string>
+  inspect: boolean
+  camera: TownCamera
+  displayedCenter: Point
+  pointerDragged: boolean
+}
 
 interface Bridge {
   snapshot(): TownSnapshot
   input: TownInput
   onInspect(target: TownTarget): void
+  onDismiss(): void
+  onAnchor(point: Point): void
   onNearby(name: string | null): void
   onLocation(id: District | null): void
   onReady(): void
@@ -83,7 +91,7 @@ class TownScene extends Phaser.Scene {
   private districtFrames = new Map<District, Phaser.GameObjects.Rectangle>()
   private hoveredPlace: District | null = null
   private snapshot: TownSnapshot | null = null
-  private cameraCenter = { x: TOWN_WIDTH / 2, y: TOWN_HEIGHT / 2 }
+  private cameraCenter = { ...TOWN_CENTER }
   private nearbyName: string | null = null
   private room: District | null = null
 
@@ -108,7 +116,7 @@ class TownScene extends Phaser.Scene {
         .setOrigin(0).setDepth(3).setInteractive({ useHandCursor: true })
       frame.on('pointerover', () => { this.hoveredPlace = district })
       frame.on('pointerout', () => { if (this.hoveredPlace === district) this.hoveredPlace = null })
-      frame.on('pointerdown', () => this.bridge.onInspect({ kind: 'place', id: district }))
+      frame.setData('townTarget', { kind: 'place', id: district } satisfies TownTarget)
       this.districtFrames.set(district, frame)
       const signal = this.add.circle((site.x + 7.52) * TILE, site.y * TILE + 7, 2.5, 0xe8f0a8).setDepth(4)
       const lights = workLights(this, district)
@@ -116,6 +124,12 @@ class TownScene extends Phaser.Scene {
       this.tweens.add({ targets: signal, scale: 1.5, duration: 650, repeat: -1, yoyo: true })
       this.tweens.add({ targets: lights, alpha: 0.3, duration: 750, repeat: -1, yoyo: true })
     }
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer, hits: Phaser.GameObjects.GameObject[]) => {
+      if (pointer.button > 0 || this.bridge.input.pointerDragged) return
+      const target = hits[0]?.getData('townTarget') as TownTarget | undefined
+      if (target) this.bridge.onInspect(target)
+      else this.bridge.onDismiss()
+    })
     this.syncResidents(this.bridge.snapshot(), this.time.now)
     this.bridge.onReady()
   }
@@ -134,7 +148,18 @@ class TownScene extends Phaser.Scene {
       frame.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(DISTRICTS[id].color).color, alpha)
     }
     const selected = snapshot.selected?.kind === 'resident' ? this.residents.get(snapshot.selected.id) : null
-    this.updateView(snapshot.selected, selected, elapsed)
+    const place = snapshot.selected?.kind === 'place' ? DISTRICTS[snapshot.selected.id] : null
+    const point = selected?.sprite ?? (place ? center({
+      x: place.x + (HOUSE_WIDTH - 1) / 2, y: place.y + (HOUSE_HEIGHT - 1) / 2
+    }) : null)
+    this.updateView(point, elapsed)
+    if (point) {
+      const zoom = this.bridge.input.camera.zoom
+      this.bridge.onAnchor({
+        x: 0.5 + (point.x - this.cameraCenter.x) * zoom / TOWN_WIDTH,
+        y: 0.5 + (point.y - (selected ? 10 : 0) - this.cameraCenter.y) * zoom / TOWN_HEIGHT
+      })
+    }
     this.selectedRing.setVisible(Boolean(selected))
     if (selected) this.selectedRing.setPosition(selected.sprite.x, selected.sprite.y + 1).setDepth(30 + selected.sprite.y)
     const room = roomAt(this.player.sprite.x, this.player.sprite.y)
@@ -177,8 +202,9 @@ class TownScene extends Phaser.Scene {
       if (!resident) {
         const skin = PORTRAITS[activity.id] ?? 1 + (slot % 5)
         const walker = this.createWalker(center(COMMONS[slot % COMMONS.length]), skin, activity.name)
-        walker.sprite.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect({ kind: 'resident', id: activity.id }))
-        walker.label.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.bridge.onInspect({ kind: 'resident', id: activity.id }))
+        const target = { kind: 'resident', id: activity.id } satisfies TownTarget
+        walker.sprite.setInteractive({ useHandCursor: true }).setData('townTarget', target)
+        walker.label.setInteractive({ useHandCursor: true }).setData('townTarget', target)
         resident = {
           ...walker, slot, route: [], target: null, restUntil: time + 1700 + slot * 500,
           nextStop: slot + 2, state: 'idle'
@@ -256,24 +282,17 @@ class TownScene extends Phaser.Scene {
     this.pose(this.player, nx, ny, nx - x, ny - y)
   }
 
-  private updateView(target: TownTarget | null, resident: Resident | null | undefined, elapsed: number) {
-    const { zoom, followSelection } = this.bridge.input.camera
+  private updateView(selection: Point | null, elapsed: number) {
+    const { zoom, followSelection, center: manualCenter } = this.bridge.input.camera
     const camera = this.cameras.main
     if (camera.zoom !== zoom) camera.setZoom(zoom)
-    let point: Point = this.player.sprite
-    if (followSelection && resident) point = resident.sprite
-    if (followSelection && target?.kind === 'place') {
-      const site = DISTRICTS[target.id]
-      point = center({ x: site.x + (HOUSE_WIDTH - 1) / 2, y: site.y + (HOUSE_HEIGHT - 1) / 2 })
-    }
-
-    const halfWidth = TOWN_WIDTH / (zoom * 2)
-    const halfHeight = TOWN_HEIGHT / (zoom * 2)
-    const x = Phaser.Math.Clamp(point.x, halfWidth, TOWN_WIDTH - halfWidth)
-    const y = Phaser.Math.Clamp(point.y, halfHeight, TOWN_HEIGHT - halfHeight)
-    const weight = Math.min(elapsed * 12, 1)
-    this.cameraCenter.x = Phaser.Math.Clamp(Phaser.Math.Linear(this.cameraCenter.x, x, weight), halfWidth, TOWN_WIDTH - halfWidth)
-    this.cameraCenter.y = Phaser.Math.Clamp(Phaser.Math.Linear(this.cameraCenter.y, y, weight), halfHeight, TOWN_HEIGHT - halfHeight)
+    const target = manualCenter ?? (followSelection && selection ? selection : this.player.sprite)
+    const weight = manualCenter ? 1 : Math.min(elapsed * 12, 1)
+    this.cameraCenter = clampCenter({
+      x: Phaser.Math.Linear(this.cameraCenter.x, target.x, weight),
+      y: Phaser.Math.Linear(this.cameraCenter.y, target.y, weight)
+    }, zoom)
+    this.bridge.input.displayedCenter = this.cameraCenter
     camera.centerOn(this.cameraCenter.x, this.cameraCenter.y)
   }
 

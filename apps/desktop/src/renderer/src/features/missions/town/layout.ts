@@ -13,22 +13,22 @@ export const DISTRICT_ORDER = ['planning', 'build', 'sandbox', 'review'] as cons
 
 export const DISTRICTS = {
   planning: {
-    name: 'Planning Office', step: 'Plan', color: '#95d7b2', x: 4, y: 2, door: { x: 8, y: 7 },
+    name: 'Planning Office', color: '#95d7b2', x: 4, y: 2, door: { x: 8, y: 7 },
     description: 'The PM turns the request into milestones and assigns features to the team.'
   },
   build: {
-    name: 'Build Workshop', step: 'Build', color: '#f3bd7f', x: 24, y: 2, door: { x: 28, y: 7 },
+    name: 'Build Workshop', color: '#f3bd7f', x: 24, y: 2, door: { x: 28, y: 7 },
     description: 'Engineers edit assigned features and hand off their changed files.'
   },
   sandbox: {
-    name: 'Test Lab', step: 'Test', color: '#bcb5ed', x: 4, y: 13, door: { x: 8, y: 17 },
+    name: 'Test Lab', color: '#bcb5ed', x: 4, y: 13, door: { x: 8, y: 17 },
     description: 'HEX runs automated checks in the sandbox and records which passed or failed.'
   },
   review: {
-    name: 'Review Office', step: 'Review', color: '#9ed3e9', x: 24, y: 13, door: { x: 28, y: 17 },
+    name: 'Review Office', color: '#9ed3e9', x: 24, y: 13, door: { x: 28, y: 17 },
     description: 'QA, Reviewer, and Security validate the work and flag issues that need attention.'
   }
-} satisfies Record<District, { name: string; step: string; color: string; description: string; x: number; y: number; door: Point }>
+} satisfies Record<District, { name: string; color: string; description: string; x: number; y: number; door: Point }>
 
 export const HOUSE_WIDTH = 8
 export const HOUSE_HEIGHT = 4
