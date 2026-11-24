@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type Ref } from 'react'
 
 import type { ApiClient } from '../../lib/api'
 import { applyMission, describeError, postAction, type ErrorText } from './actions'
@@ -9,6 +9,7 @@ interface Props {
   api: ApiClient
   mission: Mission
   onChanged: (mission: Mission) => void
+  reviewButtonRef?: Ref<HTMLButtonElement>
 }
 
 const CHANGE_LABEL = { added: 'new', modified: 'changed', deleted: 'removed' } as const
@@ -18,7 +19,7 @@ const CHANGE_LABEL = { added: 'new', modified: 'changed', deleted: 'removed' } a
  * the mission branch, or discard them. Revert is available after applying. Nothing touches the
  * user's files until Apply.
  */
-export function ApplyPanel({ api, mission, onChanged }: Props) {
+export function ApplyPanel({ api, mission, onChanged, reviewButtonRef }: Props) {
   const actions = actionsFor(mission.status)
   const [diff, setDiff] = useState<MissionDiff | null>(null)
   const [includeMissionFiles, setIncludeMissionFiles] = useState(true)
@@ -75,7 +76,7 @@ export function ApplyPanel({ api, mission, onChanged }: Props) {
       )}
 
       <div className="apply-panel__actions">
-        <button type="button" className="button button--small" onClick={() => void loadDiff()}>
+        <button type="button" className="button button--small" ref={reviewButtonRef} onClick={() => void loadDiff()}>
           {diff ? 'Refresh changes' : 'Review changes'}
         </button>
         {actions.apply && (

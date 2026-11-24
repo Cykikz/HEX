@@ -13,6 +13,7 @@ import { ActivityFeed, TeamRoster } from './TeamRoster'
 import { ValidationPanel } from './ValidationPanel'
 import { FeatureTree } from './FeatureTree'
 import { NeedsYou } from './NeedsYou'
+import { MissionMap } from './MissionMap'
 import {
   actionsFor,
   activeFeature,
@@ -66,6 +67,8 @@ export function MissionScreen({
   const { mission, events, needs, checkpoints, connection, error } = view
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
+  const reviewButton = useRef<HTMLButtonElement>(null)
   const now = useNow(mission?.status === 'running')
 
   if (!mission) {
@@ -100,6 +103,11 @@ export function MissionScreen({
 
   const stop = () => {
     if (window.confirm('Stop this mission? Work in progress is dropped.')) void act('stop')
+  }
+
+  const reviewDiff = () => {
+    reviewButton.current?.focus()
+    reviewButton.current?.click()
   }
 
   return (
@@ -188,6 +196,9 @@ export function MissionScreen({
             <Square size={14} aria-hidden="true" /> Stop
           </button>
         )}
+        <button type="button" className="button button--small" aria-expanded={mapOpen} onClick={() => setMapOpen((open) => !open)}>
+          {mapOpen ? 'Hide agent map' : 'Show agent map'}
+        </button>
       </div>
       {(actionError || error) && (
         <p role="alert" className="mission__error">
@@ -196,11 +207,20 @@ export function MissionScreen({
       )}
 
       <NeedsYou api={api} needs={needs} onAnswered={adopt} />
-      {actions.review && <ApplyPanel api={api} mission={mission} onChanged={adopt} />}
+      {actions.review && <ApplyPanel api={api} mission={mission} onChanged={adopt} reviewButtonRef={reviewButton} />}
       {mission.status === 'applied' && (
         <HandoffPanel api={api} projectId={mission.project_id} projectName={mission.title} />
       )}
 
+      {mapOpen && (
+        <MissionMap
+          key={mission.id}
+          mission={mission}
+          events={events}
+          now={now}
+          onReview={actions.review ? reviewDiff : undefined}
+        />
+      )}
       <TeamRoster events={events} active={mission.status === 'running'} />
 
       <div className="mission__body">

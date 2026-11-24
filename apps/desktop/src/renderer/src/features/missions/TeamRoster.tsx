@@ -87,7 +87,7 @@ export function TeamRoster({ events, active }: Props) {
   )
 }
 
-function MemberDrawer({ member, now, onClose }: { member: Member; now: number; onClose: () => void }) {
+export function MemberDrawer({ member, now, onClose }: { member: Member; now: number; onClose: () => void }) {
   const end = useRef<HTMLLIElement>(null)
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'nearest' })

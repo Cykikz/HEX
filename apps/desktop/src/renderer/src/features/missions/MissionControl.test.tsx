@@ -419,3 +419,63 @@ describe('useMission (live, not polled)', () => {
   })
 })
 
+describe('MissionScreen: agent map', () => {
+  const featureStarted: AgentEvent = {
+    ...base, seq: 1, type: 'feature_status_changed',
+    payload: { feature_id: 'c', title: 'Filter', persona: 'frontend', status: 'in_progress', attempts: 1, commit: null }
+  }
+  const qaStarted: AgentEvent = {
+    ...base, seq: 2, type: 'validator_started',
+    payload: { validator: 'qa', milestone_id: 'm2-b', round: 1 }
+  }
+
+  it('shows real agent activity and keeps overlapping sandbox checks on their station', () => {
+    const firstCheck: AgentEvent = { ...base, seq: 3, type: 'check_started', agent_id: 'sandbox', payload: { name: 'test' } }
+    const secondCheck: AgentEvent = { ...firstCheck, seq: 4 }
+    const result: AgentEvent = {
+      ...base, seq: 5, type: 'check_completed', agent_id: 'sandbox',
+      payload: { name: 'test', exit_code: 1, duration_ms: 100 }
+    }
+    const events = [featureStarted, qaStarted, firstCheck, secondCheck, result]
+    const api = makeApi()
+    const { rerender } = render(<MissionScreen api={api} view={makeView({ events })} />)
+    expect(screen.queryByRole('region', { name: 'Agent map' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show agent map' }))
+    const map = within(screen.getByRole('region', { name: 'Agent map' }))
+    expect(map.getByText('Running test')).toBeInTheDocument()
+    fireEvent.click(map.getByRole('button', { name: 'QA · Working' }))
+    const drawer = within(map.getByRole('complementary', { name: 'QA: what it did' }))
+    expect(drawer.getByText('Checking milestone m2-b')).toBeInTheDocument()
+    expect(drawer.queryByText(/sandbox/)).toBeNull()
+    fireEvent.click(map.getByRole('button', { name: 'Frontend · Working' }))
+    expect(map.getByRole('complementary', { name: 'Frontend: what it did' })).toHaveTextContent('Started "Filter"')
+
+    rerender(<MissionScreen api={api} view={makeView({ events: [...events, { ...result, seq: 6 }] })} />)
+    expect(map.getByText('test · failed')).toBeInTheDocument()
+    expect(map.queryByText('Running test')).toBeNull()
+  })
+
+  it('can inspect an earlier replay step and open the live mission diff', async () => {
+    const events: AgentEvent[] = [featureStarted, qaStarted, {
+      ...base, seq: 3, type: 'handoff_recorded',
+      payload: { persona: 'frontend', feature_id: 'c', files_changed: ['src/filter.js'], model_used: 'test', cost_usd: 0, tokens_in: 0, tokens_out: 0 }
+    }]
+    const api = makeApi({ '/missions/m1/diff': { run_id: 'r1', base_commit: 'abc', files: [] } })
+    render(<MissionScreen api={api} view={makeView({ mission: mission({ status: 'completed' }), events })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show agent map' }))
+    const map = within(screen.getByRole('region', { name: 'Agent map' }))
+    expect(map.getByText('Frontend · Filter · 1 changed')).toBeInTheDocument()
+
+    fireEvent.click(map.getByRole('button', { name: 'Replay mission' }))
+    expect(map.getByRole('slider', { name: 'Replay position' })).toHaveValue('1')
+    expect(map.queryByRole('button', { name: /QA/ })).toBeNull()
+    fireEvent.change(map.getByRole('slider', { name: 'Replay position' }), { target: { value: '2' } })
+    expect(map.getByRole('button', { name: 'QA · Working' })).toBeInTheDocument()
+    expect(map.getByText('No handoff recorded')).toBeInTheDocument()
+
+    fireEvent.click(map.getByRole('button', { name: 'Latest' }))
+    fireEvent.click(map.getByRole('button', { name: 'Open mission diff' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh changes' })).toHaveFocus())
+    expect(api.get).toHaveBeenCalledWith('/missions/m1/diff')
+  })
+})
