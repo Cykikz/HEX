@@ -497,8 +497,10 @@ describe('MissionScreen: agent map', () => {
     }
 
     fireEvent.click(map.getByRole('button', { name: 'Latest' }))
-    fireEvent.click(map.getByRole('button', { name: 'Open mission diff' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh changes' })).toHaveFocus())
+    await act(async () => {
+      fireEvent.click(map.getByRole('button', { name: 'Open mission diff' }))
+    })
+    expect(screen.getByRole('button', { name: 'Refresh changes' })).toHaveFocus()
     expect(api.get).toHaveBeenCalledWith('/missions/m1/diff')
   })
 })
