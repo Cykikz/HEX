@@ -74,8 +74,8 @@ export function paintTown(scene: Phaser.Scene) {
 
   for (const district of DISTRICT_ORDER) {
     const site = DISTRICTS[district]
-    scene.add.text((site.x + HOUSE_WIDTH / 2) * TILE, site.y * TILE + 1, site.name, {
-      fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: site.color,
+    scene.add.text((site.x + HOUSE_WIDTH / 2) * TILE, site.y * TILE - 6, site.name, {
+      resolution: 2, fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: site.color,
       backgroundColor: '#192924', padding: { left: 4, right: 4, top: 3, bottom: 2 }
     }).setOrigin(0.5, 0).setDepth(1)
   }
@@ -119,9 +119,12 @@ function paintWorkplace(gfx: Phaser.GameObjects.Graphics, district: District) {
   paint(wall.trim, 3, 3, width - 6, 2)
   paint(wall.edge, 1, 8, 3, height - 9)
   paint(wall.edge, width - 4, 8, 3, height - 9)
-  paint(wall.edge, 2, height - 5, 51, 4)
-  paint(wall.edge, 75, height - 5, 51, 4)
-  paint(wall.trim, 53, height - 4, 22, 2)
+  paint(wall.edge, 2, height - 4, 50, 4)
+  paint(wall.edge, 76, height - 4, 50, 4)
+  paint(0xb8a58a, 52, height - 4, 24, 4)
+  paint(wall.trim, 52, height - 2, 24, 1)
+  paint(wall.trim, 51, height - 9, 2, 8)
+  paint(wall.trim, 75, height - 9, 2, 8)
   fixtures[district](paint)
 }
 
@@ -137,9 +140,10 @@ const fixtures: Record<District, (paint: Paint) => void> = {
     }
     desk(paint, 13, 35, 33)
     desk(paint, 82, 35, 33)
-    paint(0xc48d66, 54, 34, 20, 16)
-    paint(0xdba878, 55, 35, 18, 9)
-    paint(0xf6e3b8, 61, 37, 7, 5)
+    paint(0x9d775e, 53, 32, 22, 25)
+    paint(0xcd9a73, 54, 33, 20, 23)
+    paint(0xe7b38a, 57, 34, 14, 1)
+    paint(0xe7b38a, 57, 54, 14, 1)
     paint(0x688d63, 7, 18, 9, 8)
     paint(0x9fc480, 9, 17, 5, 4)
   },
@@ -149,8 +153,8 @@ const fixtures: Record<District, (paint: Paint) => void> = {
       paint(0xcda97a, pos, 13, 7, 1)
       paint(0xd6cfb9, pos + 2, 15, 2, 4)
     }
-    desk(paint, 11, 25, 46)
-    desk(paint, 71, 25, 46)
+    desk(paint, 11, 25, 37)
+    desk(paint, 79, 25, 38)
     paint(0x906037, 9, 49, 30, 10)
     paint(0xd19d5e, 10, 48, 28, 7)
     paint(0xffcf83, 19, 50, 1, 5)
@@ -181,15 +185,15 @@ const fixtures: Record<District, (paint: Paint) => void> = {
   review(paint) {
     paint(0x557282, 34, 20, 60, 35)
     paint(0x6d8b97, 35, 21, 58, 33)
-    paint(0x5b4a41, 38, 25, 52, 21)
-    paint(0xab7958, 40, 25, 48, 17)
+    paint(0x5b4a41, 38, 21, 52, 16)
+    paint(0xab7958, 40, 21, 48, 13)
     for (const page of [46, 59, 73]) {
-      paint(0xf7e9c8, page, 29, 9, 8)
-      paint(0xb4a7a3, page + 2, 32, 5, 1)
-      paint(0xb4a7a3, page + 2, 34, 4, 1)
+      paint(0xf7e9c8, page, 23, 9, 8)
+      paint(0xb4a7a3, page + 2, 26, 5, 1)
+      paint(0xb4a7a3, page + 2, 28, 4, 1)
     }
-    paint(0x6c5954, 49, 46, 11, 7)
-    paint(0x6c5954, 68, 46, 11, 7)
+    paint(0x6c5954, 29, 44, 11, 7)
+    paint(0x6c5954, 88, 44, 11, 7)
     paint(0x76645a, 11, 15, 20, 19)
     paint(0xd4b489, 13, 16, 16, 15)
     for (let line = 0; line < 3; line++) {
@@ -209,4 +213,24 @@ function desk(paint: Paint, x: number, y: number, width: number) {
   paint(0x8dc3b3, x + 5, y - 3, 10, 5)
   paint(0xf0ddba, x + width - 11, y + 3, 7, 4)
   paint(0x53595b, x + 6, y + 12, 9, 5)
+}
+
+const WORK_LIGHTS: Record<District, readonly [number, number, number, number][]> = {
+  planning: [[28, 20, 2, 4], [53, 21, 2, 3], [79, 20, 2, 4]],
+  build: [[16, 22, 10, 5], [84, 22, 10, 5]],
+  sandbox: [
+    [14, 20, 2, 1], [32, 25, 2, 1], [50, 20, 2, 1],
+    [106, 30, 2, 1], [73, 21, 14, 1], [73, 24, 9, 1]
+  ],
+  review: [[16, 19, 3, 2], [16, 23, 3, 2], [16, 27, 3, 2]]
+}
+
+export function workLights(scene: Phaser.Scene, district: District): Phaser.GameObjects.Graphics {
+  const site = DISTRICTS[district]
+  const lights = scene.add.graphics().setDepth(2).setVisible(false)
+  lights.fillStyle(district === 'sandbox' ? 0xc6f5fa : 0xffe0a3, 0.85)
+  for (const [x, y, width, height] of WORK_LIGHTS[district]) {
+    lights.fillRect(site.x * TILE + x, site.y * TILE + y, width, height)
+  }
+  return lights
 }

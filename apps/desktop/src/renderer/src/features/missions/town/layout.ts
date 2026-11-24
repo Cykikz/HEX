@@ -32,6 +32,7 @@ export const DISTRICTS = {
 
 export const HOUSE_WIDTH = 8
 export const HOUSE_HEIGHT = 4
+const PLAYER_RADIUS = 3
 export const PLAYER_SPAWN: Point = { x: 18, y: 15 }
 export const COMMONS: Point[] = [
   { x: 12, y: 10 }, { x: 15, y: 9 }, { x: 21, y: 9 }, { x: 23, y: 11 },
@@ -55,7 +56,7 @@ rectangle(paths, 4, 17, 28, 2)
 rectangle(paths, 13, 11, 2, 7)
 rectangle(paths, 21, 11, 2, 7)
 
-for (const site of Object.values(DISTRICTS)) rectangle(blocked, site.x, site.y, HOUSE_WIDTH, HOUSE_HEIGHT)
+for (const site of Object.values(DISTRICTS)) rectangle(paths, site.x, site.y, HOUSE_WIDTH, HOUSE_HEIGHT)
 rectangle(blocked, 17, 10, 2, 2)
 
 export const TREES: readonly [number, number, number][] = [
@@ -73,14 +74,67 @@ export const center = ({ x, y }: Point): Point => ({ x: (x + 0.5) * TILE, y: (y 
 export const cell = (x: number, y: number): Point => ({ x: Math.floor(x / TILE), y: Math.floor(y / TILE) })
 export const indexOf = ({ x, y }: Point): number => y * COLUMNS + x
 
+type Obstacle = readonly [left: number, top: number, width: number, height: number]
+
+const WALLS: readonly Obstacle[] = [
+  [0, 0, 128, 12], [0, 12, 4, 52], [124, 12, 4, 52], [4, 60, 48, 4], [76, 60, 48, 4]
+]
+// Pixel footprints for the solid fixtures drawn by scenery.ts. The rest of each floor is open.
+const FURNITURE: Record<District, readonly Obstacle[]> = {
+  planning: [[20, 12, 88, 17], [13, 31, 33, 21], [82, 31, 33, 21], [7, 17, 9, 9]],
+  build: [[8, 12, 112, 9], [11, 21, 37, 21], [79, 21, 38, 21], [9, 48, 30, 11]],
+  sandbox: [
+    [10, 14, 14, 28], [28, 14, 14, 28], [46, 14, 14, 28], [102, 14, 14, 28],
+    [66, 15, 29, 20], [8, 49, 34, 6], [87, 49, 31, 6]
+  ],
+  review: [[38, 21, 52, 16], [29, 44, 11, 7], [88, 44, 11, 7], [11, 15, 20, 19], [106, 16, 10, 12]]
+}
+const WORKSTATIONS: Record<District, readonly Point[]> = {
+  planning: [{ x: 3, y: 2 }, { x: 4, y: 2 }, { x: 2, y: 3 }, { x: 5, y: 3 }],
+  build: [{ x: 3, y: 2 }, { x: 4, y: 2 }, { x: 5, y: 3 }, { x: 4, y: 3 }, { x: 3, y: 3 }],
+  sandbox: [{ x: 4, y: 2 }, { x: 5, y: 2 }, { x: 4, y: 3 }],
+  review: [{ x: 3, y: 2 }, { x: 4, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 3 }]
+}
+
+export function roomAt(x: number, y: number): District | null {
+  return DISTRICT_ORDER.find((id) => {
+    const site = DISTRICTS[id]
+    return x >= site.x * TILE && y >= site.y * TILE
+      && x < (site.x + HOUSE_WIDTH) * TILE && y < (site.y + HOUSE_HEIGHT) * TILE
+  }) ?? null
+}
+
+function overlaps(rectangles: readonly Obstacle[], x: number, y: number): boolean {
+  return rectangles.some(([left, top, width, height]) => x >= left && x < left + width && y >= top && y < top + height)
+}
+
+function clearPixel(x: number, y: number): boolean {
+  const tile = cell(x, y)
+  if (tile.x < 0 || tile.y < 0 || tile.x >= COLUMNS || tile.y >= ROWS) return false
+  if (blocked[indexOf(tile)] || (isWater(tile.x, tile.y) && !isBridge(tile.x, tile.y))) return false
+  const district = roomAt(x, y)
+  if (!district) return true
+  const site = DISTRICTS[district]
+  const localX = x - site.x * TILE
+  const localY = y - site.y * TILE
+  return !overlaps(WALLS, localX, localY) && !overlaps(FURNITURE[district], localX, localY)
+}
+
+export function canStand(x: number, y: number): boolean {
+  return clearPixel(x - PLAYER_RADIUS, y - PLAYER_RADIUS) && clearPixel(x + PLAYER_RADIUS, y - PLAYER_RADIUS)
+    && clearPixel(x - PLAYER_RADIUS, y + PLAYER_RADIUS) && clearPixel(x + PLAYER_RADIUS, y + PLAYER_RADIUS)
+}
+
 export function walkable(x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < COLUMNS && y < ROWS
-    && blocked[y * COLUMNS + x] === 0 && (!isWater(x, y) || isBridge(x, y))
+  const point = center({ x, y })
+  return canStand(point.x, point.y)
 }
 
 export function destination(district: District, slot: number): Point {
-  const door = DISTRICTS[district].door
-  return { x: door.x + (slot % 5) - 2, y: door.y + (Math.floor(slot / 5) % 2) }
+  const site = DISTRICTS[district]
+  const seats = WORKSTATIONS[district]
+  const seat = seats[slot % seats.length]
+  return { x: site.x + seat.x, y: site.y + seat.y }
 }
 
 /** Prefer streets when both endpoints are on the street grid. Return tile centers. */
@@ -101,6 +155,8 @@ export function findTownRoute(from: Point, to: Point): Point[] {
       const nx = x + direction.x
       const ny = y + direction.y
       if (!walkable(nx, ny) || (streetOnly && !isPath(nx, ny))) continue
+      const midpoint = center({ x: (x + nx) / 2, y: (y + ny) / 2 })
+      if (!canStand(midpoint.x, midpoint.y)) continue
       const next = ny * COLUMNS + nx
       if (trail[next] !== -1) continue
       trail[next] = index

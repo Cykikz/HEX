@@ -39,6 +39,49 @@
   gap: 12px;
 }
 
+.town-view {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.town-view__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.town-view__zoom {
+  min-width: 45px;
+  color: var(--text-muted);
+  text-align: center;
+  font: 11px var(--font-mono);
+}
+
+.town-view__toolbar [aria-pressed='true'] {
+  border-color: #95d7b2;
+  color: #95d7b2;
+}
+
+.town-stage__nearby,
+.town-stage__place {
+  position: absolute;
+  z-index: 1;
+  left: 9px;
+  margin: 0;
+  padding: 5px 7px;
+  border: 1px solid #647b62;
+  border-radius: 4px;
+  color: #eff5df;
+  background: #182723ed;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.town-stage__nearby { bottom: 9px; }
+.town-stage__place { top: 9px; font-weight: 600; }
+
 .town-stage {
   position: relative;
   min-width: 0;
@@ -162,7 +205,8 @@
 .mission-map__place-detail > :last-child { margin-bottom: 0; }
 .mission-map__place-detail ul { margin: 5px 0 0; padding-left: 16px; }
 
-.mission-map__controls kbd {
+.mission-map__controls kbd,
+.town-stage__nearby kbd {
   padding: 1px 3px;
   border: 1px solid var(--border);
   border-radius: 3px;

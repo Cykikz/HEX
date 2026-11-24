@@ -169,7 +169,7 @@ export function MissionMap({ mission, events, now, onReview }: Props) {
         </aside>
       </div>
       <p className="mission-map__controls">
-        <strong>You</strong> · Move with <kbd>WASD</kbd> or arrow keys. Click a person or room, or press <kbd>E</kbd> nearby to inspect.
+        Click the town, then move with <kbd>WASD</kbd> or arrows. Walk through an open doorway to enter. <kbd>E</kbd> inspects nearby people and rooms.
       </p>
 
       {replaying && (
