@@ -484,12 +484,17 @@ describe('MissionScreen: agent map', () => {
     fireEvent.change(picker, { target: { value: 'place:build' } })
     expect(map.getByText('Frontend · Filter · 1 changed')).toBeInTheDocument()
 
-    fireEvent.click(map.getByRole('button', { name: 'Replay mission' }))
-    expect(map.getByRole('slider', { name: 'Replay position' })).toHaveValue('1')
-    expect(map.queryByRole('option', { name: /QA/ })).toBeNull()
-    fireEvent.change(map.getByRole('slider', { name: 'Replay position' }), { target: { value: '2' } })
-    expect(map.getByRole('option', { name: /QA.*Working/ })).toBeInTheDocument()
-    expect(map.getByText('No handoff recorded')).toBeInTheDocument()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(map.getByRole('button', { name: 'Replay mission' }))
+      expect(map.getByRole('slider', { name: 'Replay position' })).toHaveValue('1')
+      expect(map.queryByRole('option', { name: /QA/ })).toBeNull()
+      fireEvent.change(map.getByRole('slider', { name: 'Replay position' }), { target: { value: '2' } })
+      expect(map.getByRole('option', { name: /QA.*Working/ })).toBeInTheDocument()
+      expect(map.getByText('No handoff recorded')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
 
     fireEvent.click(map.getByRole('button', { name: 'Latest' }))
     fireEvent.click(map.getByRole('button', { name: 'Open mission diff' }))
