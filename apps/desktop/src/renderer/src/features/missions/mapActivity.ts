@@ -1,17 +1,9 @@
 import type { AgentEvent } from '../../generated/events'
 import { PERSONA_NAMES, personaOf, teamActivity, type MemberState } from './team'
+import type { District } from './town/layout'
 import type { Mission } from './types'
 
-export const STATIONS = [
-  { id: 'planning', label: 'Planning' },
-  { id: 'build', label: 'Build desks' },
-  { id: 'sandbox', label: 'Sandbox' },
-  { id: 'review', label: 'Validation' }
-] as const
-
-type Station = (typeof STATIONS)[number]['id']
-
-export function stationFor(persona: string): Station {
+export function stationFor(persona: string): District {
   if (persona === 'pm' || persona === 'researcher') return 'planning'
   if (persona === 'qa' || persona === 'code-reviewer' || persona === 'security') return 'review'
   return 'build'

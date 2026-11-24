@@ -87,11 +87,16 @@ export function TeamRoster({ events, active }: Props) {
   )
 }
 
-export function MemberDrawer({ member, now, onClose }: { member: Member; now: number; onClose: () => void }) {
+export function MemberDrawer({ member, now, onClose, autoScroll = true }: {
+  member: Member
+  now: number
+  onClose: () => void
+  autoScroll?: boolean
+}) {
   const end = useRef<HTMLLIElement>(null)
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: 'nearest' })
-  }, [member.steps.length])
+    if (autoScroll) end.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [autoScroll, member.steps.length])
   return (
     <aside className="member-drawer" aria-label={`${member.name}: what it did`}>
       <header className="member-drawer__head">

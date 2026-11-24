@@ -1,10 +1,11 @@
 .mission-map {
+  container-type: inline-size;
   display: grid;
   gap: 12px;
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-1);
 }
 
@@ -21,213 +22,137 @@
 
 .mission-map__heading h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
 }
 
-.mission-map__heading p {
+.mission-map__heading p,
+.mission-map__controls {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-muted);
 }
 
-.mission-map__viewport {
-  overflow: auto;
-  border: 3px solid #252735;
-  border-radius: 5px;
-}
-
-.mission-map__floor {
+.mission-map__world {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-width: 380px;
-  gap: 11px 16px;
-  padding: 14px;
-  background-color: #28283c;
-  background-image:
-    linear-gradient(90deg, #ffffff08 1px, transparent 1px),
-    linear-gradient(#ffffff08 1px, transparent 1px);
-  background-size: 12px 12px;
-}
-
-.mission-map__station {
-  --station: #70c0ac;
-  --floor: #303e42;
-  position: relative;
-  display: grid;
-  grid-template-rows: auto 26px minmax(64px, auto);
-  min-width: 0;
-  padding: 7px 7px 4px;
-  border: 2px solid #202432;
-  box-shadow: inset 0 3px var(--station), 0 3px #1f2130;
-  background: repeating-linear-gradient(0deg, transparent 0 11px, #11132628 11px 12px), var(--floor);
-  color: #f1f4fb;
-}
-
-.mission-map__station[data-station='build'] { --station: #9d9fe7; --floor: #38374f; }
-.mission-map__station[data-station='sandbox'] { --station: #e4b47d; --floor: #403940; }
-.mission-map__station[data-station='review'] { --station: #88b7e6; --floor: #303b50; }
-
-.mission-map__station h4 {
-  justify-self: start;
-  margin: 0 0 3px;
-  padding: 3px 6px;
-  color: #f1f4fb;
-  background: #1e2231;
-  font: 600 10px/1.2 var(--font-mono, monospace);
-  letter-spacing: .04em;
-}
-
-.mission-map__station[data-active='true'] h4 {
-  color: #191d28;
-  background: var(--station);
-}
-
-.mission-map__fixture {
-  display: flex;
-  justify-content: space-evenly;
-  align-items: end;
-  gap: 6px;
-  height: 21px;
-  margin: 0 5%;
-  border-bottom: 5px solid #888396;
-  box-shadow: 0 3px #232535, inset 0 -3px #9a93a6;
-}
-
-.mission-map__fixture i {
-  display: block;
-  width: 21px;
-  height: 12px;
-  border: 2px solid #262636;
-  border-bottom-width: 3px;
-  background: #383b55;
-  box-shadow: 0 2px #272837;
-}
-
-.mission-map__station[data-active='true'] .mission-map__fixture i {
-  background: repeating-linear-gradient(var(--station) 0 2px, #33364e 2px 4px);
-  box-shadow: 0 2px #272837, 0 0 6px var(--station);
-}
-
-.mission-map__station[data-station='planning'] .mission-map__fixture {
-  width: 70%;
-  justify-self: center;
-  border-color: #76654f;
-  box-shadow: 0 3px #262936, inset 0 -3px #a38b70;
-}
-
-.mission-map__station[data-station='planning'] .mission-map__fixture i {
-  width: 13px;
-  height: 15px;
-  border-color: #a38b70;
-  background: repeating-linear-gradient(#e6d6af 0 2px, #bca984 2px 3px);
-}
-
-.mission-map__station[data-station='sandbox'] .mission-map__fixture i {
-  width: 23px;
-  height: 20px;
-  background: repeating-linear-gradient(#373a51 0 3px, #606078 3px 4px);
-}
-
-.mission-map__station[data-station='sandbox'][data-active='true'] .mission-map__fixture i {
-  background: repeating-linear-gradient(#373a51 0 3px, var(--station) 3px 4px);
-}
-
-.mission-map__agents {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
   align-items: start;
-  gap: 0 3px;
-  padding-bottom: 9px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
-.mission-map__agent {
+.town-stage {
   position: relative;
-  display: grid;
-  justify-items: center;
-  gap: 3px;
   min-width: 0;
-  padding: 2px 0;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-  transform: translateY(13px);
-  transition: transform 350ms steps(6, end);
-}
-
-.mission-map__agent[data-state='working'] { transform: translateY(0); }
-.mission-map__agent:hover,
-.mission-map__agent[aria-pressed='true'] { border-color: var(--uniform); }
-
-.mission-map__agent:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 1px;
-}
-
-.mission-map__sprite {
-  position: relative;
-  width: 22px;
-  height: 26px;
-  background: linear-gradient(
-    #322738 0 19%,
-    #e9b595 19% 46%,
-    var(--uniform) 46% 77%,
-    #303245 77%
-  );
-  clip-path: polygon(23% 0, 77% 0, 77% 8%, 86% 8%, 86% 46%, 100% 46%,
-    100% 77%, 77% 77%, 77% 100%, 55% 100%, 55% 85%, 45% 85%, 45% 100%,
-    23% 100%, 23% 77%, 0 77%, 0 46%, 14% 46%, 14% 8%, 23% 8%);
-}
-
-.mission-map__sprite i {
-  position: absolute;
-  top: 8px;
-  left: 7px;
-  width: 2px;
-  height: 2px;
-  background: #322738;
-  box-shadow: 6px 0 #322738;
-}
-
-.mission-map__agent-name {
-  max-width: 100%;
-  padding: 1px 3px;
+  width: 100%;
+  aspect-ratio: 576 / 368;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: #202433;
-  font-size: 10px;
+  border: 2px solid #323d34;
+  border-radius: 6px;
+  background: #26362f;
+  outline: none;
 }
 
-.mission-map__agent-name::before {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-right: 4px;
-  vertical-align: 1px;
-  background: #9699ad;
+.town-stage:focus-visible {
+  outline: 2px solid #b4cf97;
+  outline-offset: 2px;
 }
 
-.mission-map__agent[data-state='working'] .mission-map__agent-name::before { background: #9ae3bb; }
-.mission-map__agent[data-state='done'] .mission-map__agent-name::before { background: #99baf3; }
-.mission-map__agent[data-state='failed'] .mission-map__agent-name::before { background: #ff9b9e; }
+.town-stage__canvas,
+.town-stage__placeholder {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+}
 
-.mission-map__summary {
+.town-stage__canvas canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.town-stage__placeholder {
+  display: grid;
+  place-items: center;
+  color: #d9e5c3;
+  font: 13px var(--font-mono);
+}
+
+.mission-map__residents {
+  min-width: 0;
+  min-height: 0;
+}
+
+.mission-map__residents > h4 {
+  margin: 0 0 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mission-map__roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  gap: 5px;
+}
+
+.mission-map__resident {
+  --resident-status: #b6a785;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface-2);
+  cursor: pointer;
+  text-align: left;
   font-size: 12px;
 }
 
-.mission-map__summary > div {
-  display: grid;
-  gap: 3px;
+.mission-map__resident:hover,
+.mission-map__resident[aria-pressed='true'] { border-color: var(--resident-status); }
+.mission-map__resident:focus-visible { outline: 2px solid var(--accent-hover); }
+
+.mission-map__resident::before {
+  flex: 0 0 6px;
+  height: 6px;
+  content: '';
+  background: var(--resident-status);
 }
 
+.mission-map__resident[data-state='working'] { --resident-status: #93d889; }
+.mission-map__resident[data-state='done'] { --resident-status: #99c9e9; }
+.mission-map__resident[data-state='failed'] { --resident-status: #f6aa95; }
+
+.mission-map__resident span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mission-map__resident small {
+  margin-left: auto;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.mission-map .member-drawer { margin-top: 8px; }
+.mission-map .member-drawer__steps { max-height: 170px; }
+.mission-map__empty { color: var(--text-muted); font-size: 12px; }
+
+.mission-map__summary {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.mission-map__summary > div { display: grid; gap: 3px; }
 .mission-map__summary span { color: var(--text-muted); }
 .mission-map__attention { color: var(--danger); }
 .mission-map__replay { font-size: 12px; }
 .mission-map__replay input { flex: 1 1 100px; min-width: 0; }
 
-@media (prefers-reduced-motion: reduce) {
-  .mission-map__agent { transition: none; }
+@container (min-width: 740px) {
+  .mission-map__world { grid-template-columns: minmax(0, 1fr) minmax(156px, 19%); }
+  .mission-map__roster { grid-template-columns: minmax(0, 1fr); }
+  .mission-map .member-drawer__steps li { grid-template-columns: 1fr; gap: 2px; }
 }
