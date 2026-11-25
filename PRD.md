@@ -851,7 +851,7 @@ for milestone in plan.milestones:
 | Git (3) | ✅ `git_status`, ✅ `git_diff`, ✅ `git_log` (worktree-scoped, read-only) |
 | Checks (2) | ✅ `run_check` (run-contract commands by name), `list_checks` |
 | Mission (2) | ✅ `get_feature_context` (feature, contracts, earlier handoffs), ✅ `list_features` |
-| Knowledge (2) | ✅ `load_skill`, `search_standards` (ChromaDB coding standards and verified lessons) |
+| Knowledge (2) | ✅ `load_skill`, ✅ `search_standards` (read-only excerpts from configured coding standards Markdown) |
 
 - **Validation:** every tool has Pydantic argument and result models plus a path guard.
 - **Allow-lists:** per-kind tool lists (validators and research can't write) are enforced in ADK `before_tool_callback`, the CrewAI tool guardrail, and the MCP server.
@@ -1012,7 +1012,7 @@ Every trigger becomes an event, a span attribute and an audit record. Blocking t
 | # | Requirement | How H.E.X v3 meets it | Status | Phase |
 |---|---|---|---|---|
 | 1 | State sharing: Blackboard vs messaging | Two coordination backends for missions (§9.8), compared in E4 | Blackboard ✅; messaging ✅ (D58); E4 runnable ✅ (D59), no live results yet | P7, P8 |
-| 2 | Tools via MCP (16 tools) | H.E.X MCP server (§12.6), plus user plugins as MCP servers | 15/16 registered; `search_standards` remains planned | P5–P6 |
+| 2 | Tools via MCP (16 tools) | H.E.X MCP server (§12.6), plus user plugins as MCP servers | ✅ 16/16 registered, including offline `search_standards` (D88) | P5–P6, D88 |
 | 3 | Structured output (Pydantic) | Router decision, MissionPlan, Handoff, ValidatorReport, guardrail verdicts, Persona, catalog, events, API models; one repair retry | ✅ (extended each phase) | all |
 | 4 | Agentic design patterns, compared | E1 compares single-agent, mission-team and build-then-review setups | 3/6 benchmark patterns runnable; live comparison results pending | P3, P8 |
 | 5 | Monitoring via callbacks | ADK and CrewAI callbacks feed TelemetryHub and live views. Town displays recorded mission activity (D87). | ✅ Core callback monitoring and Town rendering verified | P3–P7, D87 |
@@ -1023,6 +1023,14 @@ Every trigger becomes an event, a span attribute and an audit record. Blocking t
 | 10 | End-to-end evaluation (cost, time, prompt variance) | 22 feature tasks, five benchmark apps, runner and dashboard (§15) | E1 (three patterns), E4 and E5 runnable; E2, E3 and E6 blocked. No controlled live sweep results recorded in the repository. | P8 |
 | 11 | Cloud deployment | **H.E.X backend on Google Cloud** (§18.2, P9); details decided with the user at that phase | Planned | P9 |
 | + | Original brief: scikit-learn baseline, ≥40 runs across providers, PEAS metrics | E6, E3, §15.4 | Label tools ✅; the scikit-learn baseline is not built (needs your approval of the dependency and your labels, D62) | P8 |
+
+### Remaining implementation and setup
+
+1. **Evaluation smoke run and existing experiments (E1, E4, E5).** Use a machine with the working sandbox and a tested model connection, then run a small set of trials. Keep the benchmark version, model, skills and budget fixed across conditions except for the variable under test. Prepare named E5 worker and reviewer variants for the fixed-plan runner. Measuring PM planning variants requires a separate scoping trial. Run repeated sweeps and export a dated report with pass rate, elapsed time, tokens, known cost and failed trials.
+2. **Additional team patterns and concurrency (E1, E2).** Implement a bounded build-review-repair loop for reflection and define reproducible routing rules for adaptive. Implement experimental parallel scheduling for independent features, with isolated writes, deterministic integration and recorded conflicts. Test dependency ordering and merge failures before comparing serial and parallel on the same plans.
+3. **Model delegation (E3).** Define fixed all-cheap, all-top and mixed presets against available provider connections. Record model IDs, escalation settings and spending caps. Verify the presets with small runs, then repeat across providers and report fallback, cost and pass rate.
+4. **Router baseline (E6).** Confirm approval for the scikit-learn dependency and obtain a human-reviewed label set before grading. Fit the baseline on the training split and compare it with the LLM router on the same held-out prompts, using per-class results, latency and cost.
+5. **Cloud (P9).** Confirm the submission rubric and allowed budget, then choose the host. Stage authenticated backend and crew services, a managed database, secret storage and isolated sandbox jobs. Verify one complete hosted mission and capture the deployment evidence. Google Cloud is the current proposal in §18.2.
 
 ---
 
@@ -1230,6 +1238,7 @@ Every trigger becomes an event, a span attribute and an audit record. Blocking t
 | D85 | **Routing labels written by Claude (2026-11-22).** `docs/routing-labels.md` required labels from people, because a model labeling its own routing test would grade itself. The project owner asked for the labels to be written and labeled by Claude instead. 150 prompts (a developer's phrasing about to-do style apps; 40 question, 45 code_edit, 35 new_workflow, 30 clarification; 55 low, 56 medium, 39 high) were written to `data/labels-claude.csv` and imported as labeler `claude` (118 train, 32 test by the text-hash split). They follow the file's definitions, and ties go to the higher complexity as it says. Because no person labeled them, E6 results are reported as agreement with a model's labels, and the owner can add a human check by labeling at least 30 prompts under their own name and running `agreement claude <name>`. The scikit-learn baseline is still not built: it needs the owner's approval of the dependency (D62) | Public LLM-labeled datasets (other label schemes); the owner labeling all 150 | Asked by the user (2026-11-22) |
 | D86 | **Final draft for the presentation: everything unbuilt moves to future scope (2026-11-22).** The owner closed the scope: no new features before the presentation. The README now has a "Status and future scope" section listing what is not built (cloud P9, publishing apps to a URL, live preview and image input, browser tests, built-in database and sign-in, plan approval and milestone undo, one run view for observability, bundled backend and signed installers, automatic Git setup and a direct-folder mode, the scikit-learn baseline and E2, E3, E6) with the reason and the research behind each; the same items are the deferred list in CLAUDE.md. Known limits are stated there too: the installer holds the desktop app only, only the macOS installer was tried, builds are unsigned, and the E6 labels were written by the assistant (D85) | Building more before the presentation | Asked by the user (2026-11-22) |
 | D87 | **HEX Town shipped as a dedicated desktop view.** Town opens with an interactive sample and can subscribe to a workspace mission's existing activity stream. Room and agent popups display recorded details, and completed missions can be replayed. The sample needs no workspace, sandbox or model calls. Electron checks covered offline rendering, room clicks, zoom and replay. Automated tests covered mission events with a simulated stream. | A map available only inside Mission Control | Makes the map usable before any mission exists. Implemented in `1875442` (2026-11-25) |
+| D88 | **`search_standards` is the 16th registered MCP tool.** It ranks sections from the configured standards Markdown, returns bounded excerpts with source filenames, and is available to roles with workspace read tools. It uses the same standards documents as the existing semantic memory index. The tool itself works offline. | Requiring an embedding service for each tool call | Provides on-demand guidance in both coordination modes, including when Ollama is unavailable (2026-11-25) |
 
 **Carried over (still valid):**
 - Every model call goes through `ProviderRouter`.

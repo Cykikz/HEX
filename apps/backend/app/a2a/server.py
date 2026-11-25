@@ -223,6 +223,7 @@ class CrewExecutor(AgentExecutor):
             workspace=Path(request.workspace),
             allowed_images=settings.sandbox_images,
             check_timeout_s=settings.sandbox_timeout_s,
+            standards_dir=settings.standards_dir,
             writable=_writable_for(request),
             write_only=_write_only_for(request),
             skills=tuple(s.name for s in offered),

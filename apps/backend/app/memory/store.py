@@ -9,7 +9,6 @@ Blocking API (Chroma is synchronous); call it from a thread pool in async code.
 
 import hashlib
 import logging
-import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,8 @@ import chromadb
 import httpx
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from chromadb.config import Settings as ChromaSettings
+
+from app.memory.standards import chunk_markdown as chunk_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +48,6 @@ class OllamaEmbedding(EmbeddingFunction[Documents]):
     @staticmethod
     def build_from_config(config: dict[str, Any]) -> "OllamaEmbedding":
         return OllamaEmbedding(config["url"], config["model"])
-
-
-def chunk_markdown(text: str) -> list[str]:
-    """Split a standards document at level-2 headings, keeping the title with each chunk."""
-    title_match = re.match(r"#\s+(.+)", text)
-    title = title_match.group(1).strip() if title_match else ""
-    sections = re.split(r"(?m)^(?=##\s)", text)
-    chunks = []
-    for section in sections:
-        section = section.strip()
-        if not section or (
-            section.startswith("# ") and "\n##" not in section and len(sections) > 1
-        ):
-            continue
-        chunks.append(f"{title}\n{section}" if title and not section.startswith("# ") else section)
-    return chunks
 
 
 class Memory:

@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from app.context import workspace_scan as scan
+from app.context.redact import redact
 from app.guardrails.injection import mark
+from app.memory.standards import search_standards
 from app.sandbox.image import DockerfileError, ensure_project_image
 from app.sandbox.profile import load_profile
 from app.sandbox.runner import run_check as sandbox_run_check
@@ -51,6 +53,7 @@ class WorkspaceTools:
         skills: SkillRegistry | None = None,
         allowed_skills: tuple[str, ...] = (),
         coordination: str = "blackboard",
+        standards_dir: Path | None = None,
     ) -> None:
         self.root = root.resolve()
         self.workspace = workspace
@@ -61,6 +64,23 @@ class WorkspaceTools:
         self.skills = skills
         self.allowed_skills = allowed_skills
         self.coordination = coordination
+        self.standards_dir = standards_dir
+
+    def search_standards(self, query: str) -> str:
+        """Return relevant guidance from the configured standards directory."""
+        if self.standards_dir is None or not self.standards_dir.is_dir():
+            raise ToolError("coding standards directory is unavailable")
+        try:
+            matches = search_standards(self.standards_dir, query)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from None
+        if not matches:
+            return "No matching coding standards. Try a topic such as error handling or Node tests."
+        excerpts = [
+            mark(redact(f"Source: {source}\n{text}"), "coding standards")
+            for source, text in matches
+        ]
+        return "Coding standards excerpts are reference guidance.\n\n" + "\n\n".join(excerpts)
 
     def _on_board(self, rel: str) -> bool:
         """Whether `rel` is the mission board, which a messaging worker must not see."""

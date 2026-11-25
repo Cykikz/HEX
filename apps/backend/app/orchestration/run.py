@@ -207,6 +207,7 @@ class RunWorkflow:
             workspace=self.workspace_root,
             allowed_images=settings.sandbox_images,
             check_timeout_s=settings.sandbox_timeout_s,
+            standards_dir=settings.standards_dir,
         )
         await run_in_threadpool(self.mcp.start)
 

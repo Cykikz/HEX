@@ -157,6 +157,7 @@ class McpWorkspace(McpBridge):
         skills: tuple[str, ...] = (),
         skills_dir: Path | None = None,
         coordination: str = "blackboard",
+        standards_dir: Path | None = None,
     ) -> None:
         params = StdioServerParameters(
             command=sys.executable,
@@ -171,6 +172,7 @@ class McpWorkspace(McpBridge):
                 "--skills", ",".join(skills),
                 "--skills-dir", str(skills_dir) if skills_dir else "",
                 "--coordination", coordination,
+                *(["--standards-dir", str(standards_dir)] if standards_dir is not None else []),
             ],
             cwd=str(BACKEND_DIR),
             env=_server_env(),

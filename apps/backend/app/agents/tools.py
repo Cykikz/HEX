@@ -22,6 +22,7 @@ READ_ONLY = (
     "list_features",
     "get_feature_context",
     "load_skill",
+    "search_standards",
 )
 # The tools that read the mission board; messaging coordination withholds them (PRD §9.8).
 BOARD_TOOLS = ("list_features", "get_feature_context")
@@ -71,6 +72,10 @@ class _LoadSkill(BaseModel):
     file: str = Field(default="", description="Optional: one of the skill's files")
 
 
+class _StandardsQuery(BaseModel):
+    query: str = Field(description="Coding topic, for example Node tests or handling errors")
+
+
 class _NoArgs(BaseModel):
     pass
 
@@ -96,6 +101,7 @@ SPECS: dict[str, tuple[type[BaseModel], str]] = {
         "A feature's spec, validation criteria and earlier handoffs as JSON.",
     ),
     "load_skill": (_LoadSkill, "Load the full instructions of one of your skills."),
+    "search_standards": (_StandardsQuery, "Find relevant coding standards and their source files."),
     "run_check": (_Check, "Run a project check such as 'test' in the sandbox; returns JSON."),
 }
 

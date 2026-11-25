@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from app.config import REPO_ROOT
 from app.guardrails.injection import mark
 from app.mcp_server.tools import ToolError, WorkspaceTools
 from app.skills.registry import SkillRegistry
@@ -98,6 +99,11 @@ def build_server(tools: WorkspaceTools) -> FastMCP:
         return guarded(tools.load_skill)(name, file)
 
     @server.tool()
+    def search_standards(query: str) -> str:
+        """Search local coding standards by topic and return excerpts with their source files."""
+        return guarded(tools.search_standards)(query)
+
+    @server.tool()
     def list_checks() -> str:
         """List the project's checks (name: command), as defined by its run contract."""
         return guarded(tools.list_checks)()
@@ -121,6 +127,7 @@ def main() -> None:
     parser.add_argument("--skills", default="", help="names of the skills the agent may load")
     parser.add_argument("--coordination", default="blackboard", choices=["blackboard", "messaging"])
     parser.add_argument("--skills-dir", default="", help="the user's skills folder")
+    parser.add_argument("--standards-dir", type=Path, default=REPO_ROOT / "docs" / "standards")
     args = parser.parse_args()
     tools = WorkspaceTools(
         args.root,
@@ -132,6 +139,7 @@ def main() -> None:
         skills=SkillRegistry(Path(args.skills_dir) if args.skills_dir else None),
         allowed_skills=tuple(s for s in args.skills.split(",") if s),
         coordination=args.coordination,
+        standards_dir=args.standards_dir,
     )
     build_server(tools).run("stdio")
 

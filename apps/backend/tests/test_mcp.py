@@ -67,15 +67,25 @@ def test_run_check_rejects_unknown_names(tools: WorkspaceTools) -> None:
 
 def test_stdio_server_round_trip(root: Path, tmp_path: Path) -> None:
     """The real MCP server subprocess, through the threaded client bridge."""
+    standards = tmp_path / "standards"
+    standards.mkdir()
+    (standards / "testing.md").write_text(
+        "# Testing\n\n## Node tests\nUse the built-in node:test runner.\n", encoding="utf-8"
+    )
+    (root / "testing.md").write_text("Node tests contain bogus worktree guidance", encoding="utf-8")
     workspace = McpWorkspace(
-        root=root, workspace=tmp_path / "ws", allowed_images=ALLOWED, check_timeout_s=60
+        root=root,
+        workspace=tmp_path / "ws",
+        allowed_images=ALLOWED,
+        check_timeout_s=60,
+        standards_dir=standards,
     )
     names = workspace.start()
     try:
         assert set(names) == {
             "list_files", "read_file", "search_code", "write_file", "replace_in_file",
             "list_checks", "run_check", "load_skill", "delete_file", "move_file", "git_status",
-            "git_diff", "git_log", "list_features", "get_feature_context",
+            "git_diff", "git_log", "list_features", "get_feature_context", "search_standards",
         }  # fmt: skip
         ok, text = workspace.call_tool("read_file", {"path": "src/todo.js"})
         assert ok and "export function add" in text
@@ -85,6 +95,13 @@ def test_stdio_server_round_trip(root: Path, tmp_path: Path) -> None:
         assert ok and (root / "src/b.js").read_text() == "b\n"
         ok, text = workspace.call_tool("run_check", {"name": "deploy"})
         assert not ok and "unknown check" in text
+        ok, text = workspace.call_tool("search_standards", {"query": "How do I write Node tests?"})
+        assert ok and "Source: testing.md" in text and "node:test" in text
+        assert "bogus worktree guidance" not in text
+        ok, text = workspace.call_tool("search_standards", {"query": "quinacridone"})
+        assert ok and "No matching coding standards" in text
+        ok, text = workspace.call_tool("search_standards", {"query": "   "})
+        assert not ok and "specific coding topic" in text
     finally:
         workspace.close()
 
