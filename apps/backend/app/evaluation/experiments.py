@@ -6,9 +6,8 @@ mission ends, the hidden tests grade the worktree in the sandbox, and the trial 
 `eval_runs` with the numbers measured from the record (`llm_calls`, events, needs). Nothing in a
 trial is estimated or claimed by an agent.
 
-Runnable now: **E4** (blackboard vs messaging) and **E5** (prompt/skill variants against the
-baseline). The others need something that does not exist yet and say so (`BLOCKED`); they are
-listed in every report so a missing result is never mistaken for a null one.
+Runnable now: **E1** (team patterns), **E4** (blackboard vs messaging), and **E5** (named
+prompt/skill variants against the baseline). The other experiments report why they are blocked.
 
 Trials are resumable: a trial that already has a stored result is skipped, so a sweep that was
 stopped by a rate limit continues where it left off.
@@ -17,12 +16,13 @@ stopped by a rate limit continues where it left off.
 import asyncio
 import copy
 import logging
+import re
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
@@ -52,7 +52,24 @@ class Condition:
 
 
 SINGLE_AGENT = "backend"  # the one persona that builds everything in the single-agent pattern
-PATTERNS = ("single", "mission", "pipeline")
+PATTERNS = ("single", "mission", "pipeline", "adaptive")
+UI_EXTENSIONS = frozenset({".jsx", ".tsx", ".vue", ".svelte"})
+UI_TOPICS = frozenset({"layout", "screen", "ui"})
+DATA_TOPICS = frozenset(
+    "aggregation analytics chart charts metrics report reports streak streaks".split()
+)
+
+
+def _adaptive_persona(feature: dict[str, Any]) -> str:
+    """Choose the worker from the fixed plan so every repeat makes the same assignment."""
+    files = [PurePosixPath(path.replace("\\", "/")) for path in feature.get("target_files", ())]
+    text = " ".join([feature["title"], *(path.stem for path in files)])
+    topics = set(re.findall(r"[a-z]+", text.casefold()))
+    if topics & UI_TOPICS or any(path.suffix.casefold() in UI_EXTENSIONS for path in files):
+        return "frontend"
+    if topics & DATA_TOPICS:
+        return "data"
+    return feature["persona"]
 
 
 def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
@@ -62,6 +79,7 @@ def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
     - `single`: one agent builds every feature, nothing reviews it (the baseline).
     - `mission`: the plan as written (P-mission, the default).
     - `pipeline`: plan, build, then a code review at the end of every milestone.
+    - `adaptive`: route features to specialists from their planned titles and target files.
     """
     if pattern not in PATTERNS:
         raise ValueError(f"unknown pattern {pattern!r}")
@@ -73,6 +91,9 @@ def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
                 feature["persona"] = SINGLE_AGENT
         elif pattern == "pipeline":
             milestone["validators"] = ["code-reviewer"]
+        elif pattern == "adaptive":
+            for feature in milestone["features"]:
+                feature["persona"] = _adaptive_persona(feature)
     return organised
 
 
@@ -108,11 +129,12 @@ E1 = Experiment(
         Condition("single", "Single agent", pattern="single"),
         Condition("mission", "Mission team (default)", pattern="mission"),
         Condition("pipeline", "Pipeline: build then review", pattern="pipeline"),
+        Condition("adaptive", "Adaptive: assign by feature", pattern="adaptive"),
     ),
     note=(
-        "Three of the six patterns are built. Reflection, parallel and adaptive are not, so this "
-        "does not answer the whole question. The benchmark plans use only the backend persona, so "
-        "single agent and mission differ only in the review step the pipeline adds."
+        "Four of the six patterns are available. Reflection and parallel remain pending. Adaptive "
+        "routes UI features to Frontend and analysis or reporting features to Data using the fixed "
+        "plan. Other features keep their planned worker. It uses the mission's existing validation."
     ),
 )
 
