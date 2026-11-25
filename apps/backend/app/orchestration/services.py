@@ -54,14 +54,15 @@ class Services:
         task = self.mission_tasks.get(mission_id)
         return task is not None and not task.done()
 
-    def launch_mission(self, mission_id: uuid.UUID) -> None:
+    def launch_mission(self, mission_id: uuid.UUID, *, repair_review_findings: bool = True) -> None:
         """Start (or resume) a mission's runner in the background. One runner per mission."""
         from app.missions.runner import execute_mission
 
         if self.mission_active(mission_id):
             raise RuntimeError(f"mission {mission_id} is already running")
         task = self.background.spawn(
-            execute_mission(self, mission_id), name=f"mission-{mission_id}"
+            execute_mission(self, mission_id, repair_review_findings=repair_review_findings),
+            name=f"mission-{mission_id}",
         )
         self.mission_tasks[mission_id] = task
 

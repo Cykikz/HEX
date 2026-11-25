@@ -50,9 +50,13 @@ class Condition:
     variant_id: str | None = None
     pattern: str = "mission"  # how the team is organised for the trial (see `apply_pattern`)
 
+    @property
+    def repair_review_findings(self) -> bool:
+        return self.pattern != "pipeline"
+
 
 SINGLE_AGENT = "backend"  # the one persona that builds everything in the single-agent pattern
-PATTERNS = ("single", "mission", "pipeline", "adaptive")
+PATTERNS = ("single", "mission", "pipeline", "adaptive", "reflection")
 UI_EXTENSIONS = frozenset({".jsx", ".tsx", ".vue", ".svelte"})
 UI_TOPICS = frozenset({"layout", "screen", "ui"})
 DATA_TOPICS = frozenset(
@@ -73,13 +77,13 @@ def _adaptive_persona(feature: dict[str, Any]) -> str:
 
 
 def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
-    """The benchmark's fixed plan, organised for `pattern` (E1). The runner is the same in every
-    case; only who builds what and what reviews it changes:
+    """Organise the benchmark's fixed plan for `pattern` (E1).
 
     - `single`: one agent builds every feature, nothing reviews it (the baseline).
     - `mission`: the plan as written (P-mission, the default).
-    - `pipeline`: plan, build, then a code review at the end of every milestone.
+    - `pipeline`: plan, build, then one code review at the end of each milestone.
     - `adaptive`: route features to specialists from their planned titles and target files.
+    - `reflection`: use the same review gate as pipeline, with a repair and re-review on failure.
     """
     if pattern not in PATTERNS:
         raise ValueError(f"unknown pattern {pattern!r}")
@@ -89,7 +93,7 @@ def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
             milestone["validators"] = []
             for feature in milestone["features"]:
                 feature["persona"] = SINGLE_AGENT
-        elif pattern == "pipeline":
+        elif pattern in ("pipeline", "reflection"):
             milestone["validators"] = ["code-reviewer"]
         elif pattern == "adaptive":
             for feature in milestone["features"]:
@@ -128,13 +132,15 @@ E1 = Experiment(
     conditions=(
         Condition("single", "Single agent", pattern="single"),
         Condition("mission", "Mission team (default)", pattern="mission"),
-        Condition("pipeline", "Pipeline: build then review", pattern="pipeline"),
+        Condition("pipeline-review-only", "Pipeline: build then review once", pattern="pipeline"),
         Condition("adaptive", "Adaptive: assign by feature", pattern="adaptive"),
+        Condition("reflection", "Reflection: review and repair", pattern="reflection"),
     ),
     note=(
-        "Four of the six patterns are available. Reflection and parallel remain pending. Adaptive "
-        "routes UI features to Frontend and analysis or reporting features to Data using the fixed "
-        "plan. Other features keep their planned worker. It uses the mission's existing validation."
+        "Five of the six patterns are available. Parallel remains pending. Pipeline and reflection "
+        "use the same reviewers. Pipeline reviews once; reflection can repair blocking findings "
+        "and review again. Earlier pipeline trials keep their original condition ID. Adaptive "
+        "assigns specialists from the plan and uses the mission's existing validation."
     ),
 )
 
@@ -284,7 +290,9 @@ async def run_trial(
             await service.set_status(
                 session, mission.id, "running", only_from=("awaiting_approval",), reason="trial"
             )
-        services.launch_mission(mission_id)
+        services.launch_mission(
+            mission_id, repair_review_findings=trial.condition.repair_review_findings
+        )
         try:
             await asyncio.wait_for(asyncio.shield(services.mission_tasks[mission_id]), timeout_s)
         except asyncio.CancelledError:  # the sweep was stopped: stop the mission with it
@@ -371,6 +379,7 @@ async def _record(
             "coordination": trial.condition.coordination,
             "variant_id": trial.condition.variant_id,
             "pattern": trial.condition.pattern,
+            "repair_review_findings": trial.condition.repair_review_findings,
             "app": app.id,
             "models": models,
             "unpriced_calls": usage.unpriced_calls if usage else None,

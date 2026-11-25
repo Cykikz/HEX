@@ -140,7 +140,9 @@ class Attempt:
 
 
 class MissionRunner:
-    def __init__(self, services: Services, mission_id: uuid.UUID) -> None:
+    def __init__(
+        self, services: Services, mission_id: uuid.UUID, *, repair_review_findings: bool = True
+    ) -> None:
         self.services = services
         self.mission_id = mission_id
         self.loop = asyncio.get_running_loop()
@@ -155,6 +157,8 @@ class MissionRunner:
         self.variant: Variant | None = None
         # How this mission shares state (PRD §9.8): 'blackboard' or 'messaging'.
         self.coordination = "blackboard"
+        # E1's pipeline condition stops after its first code review.
+        self._validation_rounds = MAX_VALIDATION_ROUNDS if repair_review_findings else 1
 
     # ---------- lifecycle ----------
 
@@ -916,8 +920,7 @@ class MissionRunner:
     # ---------- validators (PRD §8.5) ----------
 
     async def _validate(self, milestone_id: uuid.UUID) -> Literal["ok", "stopped"]:
-        """Run the milestone's validators; findings go back to the builder; after
-        MAX_VALIDATION_ROUNDS the user decides."""
+        """Run the validators and send findings back when another review round is allowed."""
         async with self.services.sessionmaker() as session:
             milestone = await session.get(Milestone, milestone_id)
             assert milestone is not None
@@ -926,7 +929,7 @@ class MissionRunner:
         if not runnable:
             return "ok"  # none required (or none built yet): the milestone stays "completed"
 
-        for round_no in range(1, MAX_VALIDATION_ROUNDS + 1):
+        for round_no in range(1, self._validation_rounds + 1):
             if not await self._running():
                 return "stopped"
             reports = await self._run_validators(milestone_id, key, runnable, round_no)
@@ -946,7 +949,7 @@ class MissionRunner:
                     unavailable,
                 )
                 return "stopped"
-            if round_no == MAX_VALIDATION_ROUNDS:
+            if round_no == self._validation_rounds:
                 break
             if await self._send_back(milestone_id, failed) != "done":
                 return "stopped"
@@ -955,7 +958,8 @@ class MissionRunner:
             milestone_id,
             key,
             "milestone_failed",
-            f"The milestone “{key}” still fails validation after {MAX_VALIDATION_ROUNDS} rounds.",
+            f"The milestone “{key}” failed validation after "
+            f"{self._validation_rounds} review round{'s' if self._validation_rounds != 1 else ''}.",
             failed,
         )
         return "stopped"
@@ -1201,10 +1205,12 @@ class MissionRunner:
                 )
 
 
-async def execute_mission(services: Services, mission_id: uuid.UUID) -> None:
+async def execute_mission(
+    services: Services, mission_id: uuid.UUID, *, repair_review_findings: bool = True
+) -> None:
     """Run (or resume) a mission to its next stopping point. Unexpected failures mark the
     mission failed with a run_failed event."""
-    runner = MissionRunner(services, mission_id)
+    runner = MissionRunner(services, mission_id, repair_review_findings=repair_review_findings)
     try:
         await runner.load()
         assert runner.telemetry is not None
