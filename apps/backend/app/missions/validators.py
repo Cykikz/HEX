@@ -11,6 +11,7 @@ It never reports `pass` for work it did not check.
 
 import asyncio
 import re
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,7 +69,7 @@ class FeatureSnap:
 class ValidationContext:
     services: Services
     mission_id: object
-    run_id: object
+    run_id: uuid.UUID
     worktree: Path
     telemetry: TelemetryHub
     # The sandbox: run a named check, and read the project's check commands as they are now.
@@ -94,11 +95,11 @@ async def _ask(
     """One ADK review: (verdict, available). `available` is False when no provider produced a
     valid verdict, which a validator must report as needs_user, never as a pass."""
     async with vc.services.sessionmaker() as session:
-        route = await route_for(session, persona_id)
+        route = await route_for(session, persona_id, run_id=vc.run_id)
     llm = HexAdkLlm(
         router=vc.services.providers,
         ctx=CallContext(
-            run_id=vc.run_id,  # type: ignore[arg-type]
+            run_id=vc.run_id,
             agent_id=agent,
             route=route,
             persona_id=persona_id,

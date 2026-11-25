@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 
 from app.agents import variants
 from app.api.deps import ServicesDep, SessionDep
+from app.evaluation import delegation, missions, results, safety
 from app.evaluation import experiments as exp
-from app.evaluation import missions, results, safety
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -31,15 +31,25 @@ class SweepRequest(BaseModel):
 
 
 async def _catalog(
-    session: SessionDep, chosen: list[str] | None = None
+    session: SessionDep,
+    services: ServicesDep,
+    chosen: list[str] | None = None,
+    budget_usd: Decimal = exp.MAX_BUDGET_USD,
 ) -> dict[str, exp.Experiment]:
     known = [row.id for row in await variants.all_rows(session)]
-    return exp.experiments(chosen if chosen is not None else known)
+    selected = chosen if chosen is not None else known
+    if services.catalog is None:
+        return exp.experiments(selected)
+    try:
+        presets = await delegation.presets(session, services.catalog)
+    except delegation.DelegationSetupError as exc:
+        return exp.experiments(selected, delegation_blocked=str(exc))
+    return exp.experiments(selected, delegation_presets=presets, budget_usd=budget_usd)
 
 
 @router.get("")
-async def list_experiments(session: SessionDep) -> dict[str, Any]:
-    catalog = await _catalog(session)
+async def list_experiments(session: SessionDep, services: ServicesDep) -> dict[str, Any]:
+    catalog = await _catalog(session, services)
     return {
         "benchmark_version": missions.BENCHMARK_VERSION,
         "apps": [
@@ -51,7 +61,18 @@ async def list_experiments(session: SessionDep) -> dict[str, Any]:
                 "title": e.title,
                 "question": e.question,
                 "varies": e.varies,
-                "conditions": [{"id": c.id, "label": c.label} for c in e.conditions],
+                "conditions": [
+                    {
+                        "id": c.id,
+                        "label": c.label,
+                        **(
+                            {"model_routes": delegation.snapshot(c.model_routes)}
+                            if c.model_routes
+                            else {}
+                        ),
+                    }
+                    for c in e.conditions
+                ],
                 "blocked": e.blocked,
                 "note": e.note,
             }
@@ -70,7 +91,7 @@ async def run_experiment(
 ) -> dict[str, Any]:
     """Start a sweep. Trials that already have a stored result are skipped, so running it again
     continues where an earlier sweep stopped. One sweep runs at a time."""
-    catalog = await _catalog(session, body.variants)
+    catalog = await _catalog(session, services, body.variants, body.budget_usd)
     experiment = catalog.get(experiment_id.upper())
     if experiment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such experiment")
@@ -133,8 +154,8 @@ async def get_cache(services: ServicesDep) -> dict[str, Any]:
 
 
 @router.get("/results")
-async def get_results(session: SessionDep) -> dict[str, Any]:
-    catalog = await _catalog(session)
+async def get_results(session: SessionDep, services: ServicesDep) -> dict[str, Any]:
+    catalog = await _catalog(session, services)
     collected = [await results.collect(session, e) for e in catalog]
     return {
         "experiments": [
@@ -150,9 +171,9 @@ async def get_results(session: SessionDep) -> dict[str, Any]:
 
 
 @router.get("/report")
-async def get_report(session: SessionDep) -> dict[str, str]:
+async def get_report(session: SessionDep, services: ServicesDep) -> dict[str, str]:
     """The dated markdown report of every experiment, generated from the stored trials."""
-    catalog = await _catalog(session)
+    catalog = await _catalog(session, services)
     collected = [await results.collect(session, e) for e in catalog]
     today = datetime.now(UTC).date()
     return {"date": today.isoformat(), "markdown": results.render(collected, catalog, today)}

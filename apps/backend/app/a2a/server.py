@@ -13,6 +13,7 @@ worktrees under the app's data directory.
 import asyncio
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
@@ -190,12 +191,12 @@ class CrewExecutor(AgentExecutor):
         # Shielded: the first caller giving up (its connection timed out) must not stop the work.
         return await asyncio.shield(work)
 
-    async def _route(self, persona: Any, escalate: bool = False) -> Any:
+    async def _route(self, persona: Any, escalate: bool = False, *, run_id: uuid.UUID) -> Any:
         """The persona's assigned models, or None to use the global provider order."""
         if persona is None:
             return None
         async with self.services.sessionmaker() as session:
-            return await route_for(session, persona.id, escalate=escalate)
+            return await route_for(session, persona.id, escalate=escalate, run_id=run_id)
 
     def _note_injection(
         self, hub: TelemetryHub, request: CrewRequest, tool: str, text: str
@@ -243,7 +244,9 @@ class CrewExecutor(AgentExecutor):
                     task_id=request.task_id,
                     agent_id=request.agent_id,
                     complexity=request.complexity,
-                    route=await self._route(persona, getattr(request, "escalate", False)),
+                    route=await self._route(
+                        persona, getattr(request, "escalate", False), run_id=request.run_id
+                    ),
                     persona_id=persona.id if persona else None,
                     variant_id=getattr(request, "variant_id", None),
                 ),

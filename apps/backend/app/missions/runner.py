@@ -564,9 +564,9 @@ class MissionRunner:
     async def _note_escalation(self, feature: Feature, attempt: int) -> None:
         """Record in the delegation log that this attempt runs on the escalation model."""
         async with self.services.sessionmaker.begin() as session:
-            if not await has_escalation(session, feature.persona):
+            if not await has_escalation(session, feature.persona, run_id=self.run_id):
                 return  # no escalation model: the attempt repeats the normal route
-            route = await route_for(session, feature.persona, escalate=True)
+            route = await route_for(session, feature.persona, escalate=True, run_id=self.run_id)
             assert route is not None
             target = route.targets[0]
             connection = await session.get(Connection, target.connection_id)

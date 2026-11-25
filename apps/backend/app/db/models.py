@@ -386,6 +386,8 @@ class Mission(Base):
     validation_contract: Mapped[list[Any]] = mapped_column(default=list)
     # The prompt variant this mission runs under (prompt_variants.id), if any.
     variant_id: Mapped[str | None] = mapped_column(String(32))
+    # E3 snapshots the routes selected for this trial, including any escalation targets.
+    model_overrides: Mapped[dict[str, Any] | None] = mapped_column()
     # How the team shares state (PRD §9.8): 'blackboard' (the mission board and folder, readable
     # through tools) or 'messaging' (workers get only what the orchestrator sends).
     coordination: Mapped[str] = mapped_column(

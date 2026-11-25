@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Connection, ModelAssignment
+from app.db.models import Connection, Mission, ModelAssignment
 from app.providers.routing import Route, Target
 
 MAX_FALLBACKS = 5
@@ -82,28 +82,52 @@ def _dump(ref: ModelRef) -> dict[str, Any]:
 
 
 async def route_for(
-    session: AsyncSession, persona_id: str, *, escalate: bool = False
+    session: AsyncSession,
+    persona_id: str,
+    *,
+    escalate: bool = False,
+    run_id: uuid.UUID | None = None,
 ) -> Route | None:
     """The persona's route (primary, then fallbacks), or None if it has no assignment. With
     `escalate`, the escalation model goes first and the normal route follows as its fallback
     (so a persona with no escalation model gets its normal route)."""
+    assignment = await _assignment_for(session, persona_id, run_id)
+    if assignment is None:
+        return None
+    targets = [
+        Target(ref.connection_id, ref.model) for ref in [assignment.primary, *assignment.fallbacks]
+    ]
+    if escalate and assignment.escalate:
+        stronger = Target(assignment.escalate.connection_id, assignment.escalate.model)
+        targets = [stronger, *[t for t in targets if t != stronger]]
+    return Route(tuple(targets), persona_id=persona_id)
+
+
+async def has_escalation(
+    session: AsyncSession, persona_id: str, *, run_id: uuid.UUID | None = None
+) -> bool:
+    assignment = await _assignment_for(session, persona_id, run_id)
+    return assignment is not None and assignment.escalate is not None
+
+
+async def _assignment_for(
+    session: AsyncSession, persona_id: str, run_id: uuid.UUID | None
+) -> AssignmentIn | None:
+    if run_id is not None:
+        overrides = await session.scalar(
+            select(Mission.model_overrides).where(Mission.run_id == run_id)
+        )
+        if overrides is not None:
+            if persona_id not in overrides:
+                raise AssignmentError(f"the benchmark did not pin a model for {persona_id!r}")
+            return AssignmentIn.model_validate(overrides[persona_id])
     row = await session.scalar(
         select(ModelAssignment).where(ModelAssignment.persona_id == persona_id)
     )
     if row is None:
         return None
-    targets = [Target(row.primary_connection_id, row.primary_model)]
-    targets += [
-        Target(uuid.UUID(item["connection_id"]), item["model"]) for item in row.fallbacks or []
-    ]
-    if escalate and row.escalate:
-        stronger = Target(uuid.UUID(row.escalate["connection_id"]), row.escalate["model"])
-        targets = [stronger, *[t for t in targets if t != stronger]]
-    return Route(tuple(targets), persona_id=persona_id)
-
-
-async def has_escalation(session: AsyncSession, persona_id: str) -> bool:
-    row = await session.scalar(
-        select(ModelAssignment).where(ModelAssignment.persona_id == persona_id)
+    return AssignmentIn(
+        primary=ModelRef(connection_id=row.primary_connection_id, model=row.primary_model),
+        fallbacks=[ModelRef.model_validate(ref) for ref in row.fallbacks or []],
+        escalate=ModelRef.model_validate(row.escalate) if row.escalate else None,
     )
-    return row is not None and row.escalate is not None

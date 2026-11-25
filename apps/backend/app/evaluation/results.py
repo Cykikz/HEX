@@ -65,11 +65,19 @@ class Summary:
     tokens_out_mean: float | None = None
     tests_passed_mean: float | None = None
     by_app: dict[str, tuple[int, int]] = field(default_factory=dict)  # app -> (passed, trials)
+    model_routes: dict[str, Any] = field(default_factory=dict)
+    budget_usd: str | None = None
+    comparison_id: str | None = None
 
 
 def summarize(condition: str, rows: list[EvalRun], slug_of: dict[Any, str]) -> Summary:
     graded = [r for r in rows if r.status != "error"]
     out = Summary(condition=condition, trials=len(rows), errors=len(rows) - len(graded))
+    if rows:
+        config = rows[0].config or {}
+        out.model_routes = config.get("model_routes", {})
+        out.budget_usd = config.get("budget_usd")
+        out.comparison_id = config.get("comparison_id")
     out.completed = sum(1 for r in graded if r.completed)
     out.passed = sum(1 for r in graded if r.passed)
     if graded:
@@ -219,13 +227,27 @@ def _reading(data: dict[str, Any]) -> list[str]:
         cells = ", ".join(f"{a} {p}/{n}" for a, (p, n) in s.by_app.items()) or "no graded trials"
         lines.append(f"- {s.condition}: {cells}")
     lines.append("")
-    if len(summaries) > 1:
-        differing = [
-            (a.condition, b.condition)
-            for i, a in enumerate(summaries)
-            for b in summaries[i + 1 :]
-            if distinguishable(a, b)
-        ]
+    if any(s.model_routes for s in summaries):
+        lines += ["Pinned model routes and budgets:", ""]
+        for s in summaries:
+            if not s.model_routes:
+                continue
+            models = []
+            for persona, route in sorted(s.model_routes.items()):
+                primary = route["primary"]["model"]
+                stronger = route.get("escalate")
+                suffix = f" → {stronger['model']} on escalation" if stronger else ""
+                models.append(f"{persona}: {primary}{suffix}")
+            lines.append(f"- {s.condition}, USD {s.budget_usd} per trial: " + "; ".join(models))
+        lines.append("")
+    pairs = [
+        (a, b)
+        for i, a in enumerate(summaries)
+        for b in summaries[i + 1 :]
+        if a.comparison_id == b.comparison_id
+    ]
+    if pairs:
+        differing = [(a.condition, b.condition) for a, b in pairs if distinguishable(a, b)]
         if differing:
             lines.append(
                 "Pass rates that differ beyond their intervals: "

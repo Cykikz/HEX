@@ -31,7 +31,9 @@ function separated(a: ConditionSummary, b: ConditionSummary): boolean {
 
 export function Results({ data }: { data: ExperimentResults }) {
   const rows = data.conditions
-  const apart = rows.flatMap((a, i) => rows.slice(i + 1).filter((b) => separated(a, b)).map((b) => `${a.condition} vs ${b.condition}`))
+  const pairs = rows.flatMap((a, i) => rows.slice(i + 1)
+    .filter((b) => a.comparison_id === b.comparison_id).map((b) => [a, b] as const))
+  const apart = pairs.filter(([a, b]) => separated(a, b)).map(([a, b]) => `${a.condition} vs ${b.condition}`)
   return (
     <div className="experiments__results">
       <table className="experiments__table">
@@ -74,9 +76,11 @@ export function Results({ data }: { data: ExperimentResults }) {
       <p className="mission__muted">
         {rows.length < 2
           ? 'One condition so far: there is nothing to compare yet.'
-          : apart.length > 0
-            ? `Pass rates that differ beyond their intervals: ${apart.join('; ')}.`
-            : 'The conditions cannot be told apart on pass rate at this number of trials. That is a null result for now, not evidence that they are equal.'}
+          : pairs.length === 0
+            ? 'Run two conditions with the same model setup and trial budget to compare them.'
+            : apart.length > 0
+              ? `Pass rates that differ beyond their intervals: ${apart.join('; ')}.`
+              : 'The conditions cannot be told apart on pass rate at this number of trials. That is a null result for now, not evidence that they are equal.'}
       </p>
       {data.errors.length > 0 && (
         <details>
@@ -245,6 +249,26 @@ export function ExperimentsView({ api }: Props) {
                 <p className="mission__muted">
                   Varies {experiment.varies}: {experiment.conditions.map((c) => c.label).join(' · ')}
                 </p>
+                {experiment.conditions.some((c) => c.model_routes) && (
+                  <details>
+                    <summary>Model routes for each condition</summary>
+                    <ul>
+                      {experiment.conditions.map((c) => (
+                        <li key={c.id}>
+                          <strong>{c.label}</strong>
+                          <ul>
+                            {Object.entries(c.model_routes ?? {}).map(([role, route]) => (
+                              <li key={role}>
+                                {role}: {route.primary.model}
+                                {route.escalate && ` → ${route.escalate.model} on escalation`}
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {!active && (
                   <RunForm api={api} experiment={experiment} apps={listing.apps.map((a) => a.id)} onStarted={() => void load()} />
                 )}

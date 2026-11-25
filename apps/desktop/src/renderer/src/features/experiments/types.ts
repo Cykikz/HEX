@@ -1,12 +1,14 @@
 // Mirrors apps/backend/app/api/experiments.py and app/evaluation/results.py. A figure that could
 // not be measured is null, never zero.
 
+type ModelRoutes = Record<string, { primary: { model: string }; escalate: { model: string } | null }>
+
 export interface ExperimentInfo {
   id: string
   title: string
   question: string
   varies: string
-  conditions: { id: string; label: string }[]
+  conditions: { id: string; label: string; model_routes?: ModelRoutes }[]
   /** Why it cannot run yet; null when it can. */
   blocked: string | null
   /** What the comparison does and does not cover. */
@@ -50,6 +52,7 @@ export interface ConditionSummary {
   tokens_in_mean: number | null
   tokens_out_mean: number | null
   by_app: Record<string, [number, number]>
+  comparison_id?: string | null
 }
 
 export interface ExperimentResults {

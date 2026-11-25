@@ -30,11 +30,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EvalRun, EvalTask, FeatureRow, Mission, Need, Project, Run
-from app.evaluation import benchmarks, missions
+from app.evaluation import benchmarks, delegation, missions
 from app.metrics import service as metrics
 from app.missions import service
 from app.missions.models import MissionPlan
 from app.orchestration.services import Services
+from app.providers.assignments import AssignmentIn
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class Condition:
     coordination: str = "blackboard"
     variant_id: str | None = None
     pattern: str = "mission"  # how the team is organised for the trial (see `apply_pattern`)
+    model_routes: dict[str, AssignmentIn] | None = None
 
     @property
     def repair_review_findings(self) -> bool:
@@ -114,14 +116,17 @@ class Experiment:
 
 BLOCKED = {
     "E2": "needs parallel builders, which are not built; features are built one after another",
-    "E3": (
-        "needs model presets across providers and real keys for each; none has had a live run, "
-        "and the cheap/top/mixed presets are not defined"
-    ),
     "E6": (
         "needs the scikit-learn baseline, which is not a dependency of the project yet, and a "
         "labeled request set big enough to split"
     ),
+}
+
+DELEGATION_LABELS = {
+    "all-cheap": "All cheap",
+    "all-top": "All top",
+    "mixed": "Mixed: cheap builders, top reviewers",
+    "mixed-escalation": "Mixed with builder escalation",
 }
 
 E1 = Experiment(
@@ -171,8 +176,33 @@ def e5(variants: Sequence[str]) -> Experiment:
     )
 
 
-def experiments(variants: Sequence[str] = ()) -> dict[str, Experiment]:
-    found = {"E1": E1, "E4": E4, "E5": e5(variants)}
+def experiments(
+    variants: Sequence[str] = (),
+    *,
+    delegation_presets: dict[str, dict[str, AssignmentIn]] | None = None,
+    delegation_blocked: str | None = None,
+    budget_usd: Decimal = MAX_BUDGET_USD,
+) -> dict[str, Experiment]:
+    presets = delegation_presets or {}
+    comparison = delegation.comparison_id(presets, budget_usd)
+    conditions = tuple(
+        Condition(f"{name}-{comparison}", DELEGATION_LABELS[name], model_routes=routes)
+        for name, routes in presets.items()
+    )
+    e3 = Experiment(
+        "E3",
+        "Model delegation",
+        "Does mixing models per role pay off?",
+        "model preset",
+        conditions=conditions,
+        blocked=None if conditions else delegation_blocked or "needs tested model connections",
+        note=(
+            "Every condition uses the same code review gate. Model IDs and the budget are pinned "
+            "for each trial. An escalation comparison is offered when a stronger builder model "
+            "qualifies. Ordinary fallback models are excluded."
+        ),
+    )
+    found = {"E1": E1, "E3": e3, "E4": E4, "E5": e5(variants)}
     for exp_id, reason in BLOCKED.items():
         found[exp_id] = Experiment(exp_id, _TITLES[exp_id], _QUESTIONS[exp_id], "", (), reason)
     return dict(sorted(found.items()))
@@ -180,12 +210,10 @@ def experiments(variants: Sequence[str] = ()) -> dict[str, Experiment]:
 
 _TITLES = {
     "E2": "Serial vs parallel",
-    "E3": "Model delegation",
     "E6": "Router",
 }
 _QUESTIONS = {
     "E2": "Do parallel builders conflict?",
-    "E3": "Does mixing models per role pay off?",
     "E6": "LLM Router vs scikit-learn baseline",
 }
 
@@ -269,6 +297,13 @@ async def run_trial(
     mission_id: uuid.UUID | None = None
     error: str | None = None
     try:
+        plan = apply_pattern(app.plan, trial.condition.pattern)
+        routes = trial.condition.model_routes
+        if routes is not None:
+            for milestone in plan["milestones"]:
+                validators = milestone.setdefault("validators", [])
+                if delegation.REVIEWER not in validators:
+                    validators.append(delegation.REVIEWER)
         await run_in_threadpool(missions.prepare_workspace, workspace)
         async with services.sessionmaker.begin() as session:
             project = Project(
@@ -281,11 +316,13 @@ async def run_trial(
                 services.settings,
                 project,
                 idea=app.idea,
-                plan=MissionPlan.model_validate(apply_pattern(app.plan, trial.condition.pattern)),
+                plan=MissionPlan.model_validate(plan),
                 budget_usd=budget_usd,
                 variant_id=trial.condition.variant_id,
                 coordination=trial.condition.coordination,
             )
+            if routes is not None:
+                mission.model_overrides = delegation.snapshot(routes)
             mission_id = mission.id
             await service.set_status(
                 session, mission.id, "running", only_from=("awaiting_approval",), reason="trial"
@@ -304,7 +341,7 @@ async def run_trial(
     except Exception as exc:  # recorded, not raised: one bad trial must not stop a sweep
         logger.exception("trial %s failed", trial.key)
         error = f"{type(exc).__name__}: {exc}"[:500]
-    return await _record(services, trial, app, mission_id, workspace, started, error)
+    return await _record(services, trial, app, mission_id, workspace, started, error, budget_usd)
 
 
 async def _abandon(services: Services, mission_id: uuid.UUID, reason: str) -> None:
@@ -326,6 +363,7 @@ async def _record(
     workspace: Path,
     started: datetime,
     error: str | None,
+    budget_usd: Decimal,
 ) -> uuid.UUID:
     passed, tests = False, (None, None)
     worktree: Path | None = None
@@ -380,6 +418,15 @@ async def _record(
             "variant_id": trial.condition.variant_id,
             "pattern": trial.condition.pattern,
             "repair_review_findings": trial.condition.repair_review_findings,
+            **(
+                {
+                    "model_routes": delegation.snapshot(trial.condition.model_routes),
+                    "budget_usd": format(budget_usd.normalize(), "f"),
+                    "comparison_id": trial.condition.id.rsplit("-", 1)[-1],
+                }
+                if trial.condition.model_routes is not None
+                else {}
+            ),
             "app": app.id,
             "models": models,
             "unpriced_calls": usage.unpriced_calls if usage else None,
