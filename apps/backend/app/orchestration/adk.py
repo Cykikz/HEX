@@ -145,7 +145,7 @@ def schema_guard(
                     ]
                 }
             )
-            result = await llm.router.complete(repair, llm.ctx)
+            result = await llm.complete(repair)
             if result.ok and result.content:
                 try:
                     candidate = extract_json(result.content)

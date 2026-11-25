@@ -117,8 +117,8 @@ class Experiment:
 BLOCKED = {
     "E2": "needs parallel builders, which are not built; features are built one after another",
     "E6": (
-        "needs the scikit-learn baseline, which is not a dependency of the project yet, and a "
-        "labeled request set big enough to split"
+        "uses the separate app.evaluation.router_baseline CLI with a labeled holdout "
+        "(see docs/routing-labels.md)"
     ),
 }
 

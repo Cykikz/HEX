@@ -20,6 +20,9 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[project.optional-dependencies]
+router-eval = ["scikit-learn>=1.7.2,<2"]
+
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",

@@ -2,7 +2,7 @@
 
 > **Current label set: written and labeled by Claude, not by a person (2026-11-22, PRD D85).** The project owner chose this instead of labeling 150 prompts by hand. `data/labels-claude.csv` holds 150 prompts (40 question, 45 code_edit, 35 new_workflow, 30 clarification; 55 low, 56 medium, 39 high), imported with `--labeler claude`. Results from experiment E6 must say so: they measure the routers against one model's judgement, not against human answers. To get a human answer key, label at least 30 of these prompts yourself and import them under your own name; `agreement claude <you>` then reports how closely the two agree, and a kappa below about 0.6 means these definitions need tightening before anyone trusts the labels.
 
-The scikit-learn baseline (M7) and the comparison against the LLM Router both need prompts that **people** have labeled. Never use model output as a label, because then we would be measuring the model against itself.
+Use human-reviewed labels for a human-grounded comparison. The bundled Claude labels can exercise the E6 implementation and measure agreement with that labeler.
 
 **Target:** at least 150 labeled prompts by the end of M2. At least 30 of them must be labeled independently by two people, so we can report agreement.
 
@@ -54,3 +54,15 @@ uv run python -m app.evaluation.labels stats
 Re-importing a file replaces that labeler's labels for those prompts.
 
 Report kappa together with raw agreement. A kappa below about 0.6 means the definitions above need tightening before the labels can be trusted.
+
+## E6 router comparison
+
+Run the offline baseline from `apps/backend` with the optional `router-eval` extra. It reads the recorded split, fits TF-IDF and two logistic-regression classifiers on the training prompts, and reports performance on the held-out prompts.
+
+```sh
+uv run --extra router-eval python -m app.evaluation.router_baseline --labels-file ../../data/labels-claude.csv --label-source model
+```
+
+Use `--labeler NAME` to read stored labels or supply a human-reviewed CSV with `--label-source human-reviewed`. E6 records the label source, dataset hash, counts, per-class scores, exact-match accuracy and latency in JSON. Add `--out FILE` to save the report. Reports contain aggregates and a dataset hash.
+
+To include the desktop app's ADK Router, add `--with-llm --connection NAME --model MODEL_ID` for a tested connection. This sends the held-out prompts to that model, with the same prompt-only input and Auto mode. It reports abstentions, model attempts and known estimated provider costs. Use `--limit N` for a smaller pilot applied to both comparators. Use one full held-out set for the reported comparison.

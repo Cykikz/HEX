@@ -1,6 +1,7 @@
 """Routing label set for the scikit-learn baseline vs. LLM Router comparison (plan §9 M2/M7).
 
-Labels come from people (see docs/routing-labels.md), never from a model. CSV columns:
+Use human-reviewed labels for grading and model-labeled data for marked pilots (see
+docs/routing-labels.md). CSV columns:
 `prompt,request_type,complexity` and optionally `split` (train|test). Without a split, each
 prompt is assigned one deterministically from its text, so every labeler's copy of the same
 prompt lands in the same split.

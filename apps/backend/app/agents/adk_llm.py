@@ -11,7 +11,7 @@ on function calls round-trip via `ToolCall.extra`.
 import base64
 import json
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from google.adk.models.base_llm import BaseLlm
@@ -36,6 +36,7 @@ class HexAdkLlm(BaseLlm):
     _ctx: CallContext = PrivateAttr()
     _purpose: Purpose = PrivateAttr()
     _max_tokens: int = PrivateAttr()
+    _on_result: Callable[[LLMResult], None] | None = PrivateAttr(default=None)
     # The most recent request/result, for callbacks (provider, model, tokens, cost) and for the
     # schema guard's repair call.
     _last_request: LLMRequest | None = PrivateAttr(default=None)
@@ -48,6 +49,7 @@ class HexAdkLlm(BaseLlm):
         ctx: CallContext,
         purpose: Purpose,
         max_tokens: int = 2048,
+        on_result: Callable[[LLMResult], None] | None = None,
         **data: Any,
     ) -> None:
         super().__init__(model=f"hexmind-{purpose}", **data)
@@ -55,13 +57,20 @@ class HexAdkLlm(BaseLlm):
         self._ctx = ctx
         self._purpose = purpose
         self._max_tokens = max_tokens
+        self._on_result = on_result
+
+    async def complete(self, request: LLMRequest) -> LLMResult:
+        result = await self._router.complete(request, self._ctx)
+        if self._on_result is not None:
+            self._on_result(result)
+        return result
 
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         request = to_provider_request(llm_request, self._purpose, self._max_tokens)
         self._last_request = request
-        result = await self._router.complete(request, self._ctx)
+        result = await self.complete(request)
         self._last_result = result
         if not result.ok:
             raise ProviderCallFailed(f"{result.provider} call failed: {result.error}")

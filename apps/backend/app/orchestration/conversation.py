@@ -82,6 +82,33 @@ def _router_fallback(errors: list[str]) -> RouterDecision:
     return _INVALID_ROUTER
 
 
+def make_router_agent(llm: HexAdkLlm) -> LlmAgent:
+    return LlmAgent(
+        name="router",
+        description="Classifies the request: type, complexity, strategy.",
+        model=llm,
+        instruction=lambda ctx: (
+            f"{ROUTER_PROMPT}\n\n{ctx.state.get('context_text', '')}\n\n"
+            f"Selected mode: {ctx.state.get('mode', 'auto')}"
+        ),
+        include_contents="none",
+        output_schema=RouterDecision,
+        output_key="router_decision",
+        after_model_callback=schema_guard(
+            RouterDecision, llm, key="router", fallback=_router_fallback
+        ),
+        on_model_error_callback=model_error_fallback(
+            RouterDecision, key="router", fallback=_router_fallback
+        ),
+    )
+
+
+def read_router_decision(state: dict[str, Any]) -> RouterDecision | None:
+    if state.get("router_schema_status") == "fallback" or not state.get("router_decision"):
+        return None
+    return RouterDecision.model_validate(state["router_decision"])
+
+
 class ConversationAgent(BaseAgent):
     """Root agent for one user message."""
 
@@ -97,24 +124,7 @@ class ConversationAgent(BaseAgent):
         answer_llm = HexAdkLlm(
             router=services.providers, ctx=CallContext(), purpose="chat", max_tokens=1200
         )
-        router = LlmAgent(
-            name="router",
-            description="Classifies the request: type, complexity, strategy.",
-            model=router_llm,
-            instruction=lambda ctx: (
-                f"{ROUTER_PROMPT}\n\n{ctx.state.get('context_text', '')}\n\n"
-                f"Selected mode: {ctx.state.get('mode', 'auto')}"
-            ),
-            include_contents="none",
-            output_schema=RouterDecision,
-            output_key="router_decision",
-            after_model_callback=schema_guard(
-                RouterDecision, router_llm, key="router", fallback=_router_fallback
-            ),
-            on_model_error_callback=model_error_fallback(
-                RouterDecision, key="router", fallback=_router_fallback
-            ),
-        )
+        router = make_router_agent(router_llm)
         answer = LlmAgent(
             name="answer",
             description="Answers questions about the project without changing files.",
@@ -165,11 +175,7 @@ class ConversationAgent(BaseAgent):
             yield event
         state = ctx.session.state
         status = state.get("router_schema_status", "valid")
-        decision = (
-            RouterDecision.model_validate(state["router_decision"])
-            if status != "fallback" and state.get("router_decision")
-            else None
-        )
+        decision = read_router_decision(state)
         plan = apply_policy(
             decision, turn["mode"], min_confidence=services.settings.router_min_confidence
         )
