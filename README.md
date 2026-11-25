@@ -17,11 +17,13 @@ and you review the result before a single file of yours changes.
 ![A2A](https://img.shields.io/badge/agents%20talk%20via-A2A-1F7A70)
 ![MCP](https://img.shields.io/badge/tools-MCP-2B3A67)
 
-[What it does](#what-it-does) · [Install](#install) · [First mission](#your-first-mission) · [How it runs](#where-does-the-code-run) · [Architecture](#architecture) · [Agents](#the-agent-team) · [Scope and safety](#agentic-scope-and-safety) · [Compared](#how-it-compares) · [Status](#status-and-roadmap)
+[What it does](#what-it-does) · [Town](#hex-town) · [Install](#install) · [First mission](#your-first-mission) · [How it runs](#where-does-the-code-run) · [Architecture](#architecture) · [Agents](#the-agent-team) · [Scope and safety](#agentic-scope-and-safety) · [Compared](#how-it-compares) · [Status](#status-and-future-scope)
 
 <br>
 
 <img src="docs/images/project.webp" alt="H.E.X Mind with a project open: file explorer, Monaco editor and the agent chat, where the user ran a calculator in the sandbox" width="900">
+
+<sub>The H.E.X Mind desktop app with a project open in the editor and Agent Chat.</sub>
 
 </div>
 
@@ -45,6 +47,7 @@ Most AI coding tools are one agent doing everything: planning, writing, and grad
 - 🧠 **Any model, per team member.** OpenAI, Anthropic, Gemini, Groq, DeepSeek, Mistral, xAI, NVIDIA, OpenRouter, Ollama (local) or any OpenAI-compatible endpoint. **Auto** picks a model for each role from what *your* account can call, measured: free first, refused never, speed and rate limits shown.
 - 🛡️ **Safe by default.** Agents work in a git worktree; generated code only runs in a hardened container; API keys never reach the sandbox, the UI, logs or git.
 - 🔭 **Full observability.** A live team view (who is working on what, right now, from real events), agent topology (ADK → A2A → CrewAI), every model call with tokens, cost and latency, and a trace per run.
+- 🗺️ **HEX Town.** Explore a walkable pixel-art town, inspect agents and rooms, and replay recorded mission activity.
 - 🧩 **Skills and plugins.** 28 built-in skills (SKILL.md), install more from GitHub (Claude and Codex skills work), and attach MCP servers per team member.
 - ⌨️ **Feels like an IDE.** Monaco editor, file explorer, command palette (<kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd>), keyboard shortcuts, status bar, a terminal into the project's sandbox.
 - 📏 **Measured, not claimed.** A built-in evaluation harness (benchmark missions with hidden tests) to compare models and setups.
@@ -64,6 +67,20 @@ Most AI coding tools are one agent doing everything: planning, writing, and grad
 </tr>
 </table>
 
+## HEX Town
+
+Click **Town** below **Missions** to explore the map. **Play sample** replays a built-in seed-catalog mission. The sample works offline and needs no workspace, API key, or Docker sandbox.
+
+<p align="center">
+  <img src="docs/images/town-overview.webp" alt="HEX Town offline sample showing a walkable pixel-art village with a planning office, build workshop, test lab, and review office" width="900">
+</p>
+
+Choose a workspace mission from the **Town activity** list or click **Open in Town** from a mission. Click an agent or room for recorded assignments, steps, changed files, or check results. Scroll or pinch to zoom, drag to pan, and use **WASD** or the arrow keys to walk.
+
+<p align="center">
+  <img src="docs/images/town-agent.webp" alt="HEX Town with the Frontend agent popup showing the sample assignment, recent steps, and changed file" width="900">
+</p>
+
 ---
 
 ## Install
@@ -80,13 +97,15 @@ H.E.X Mind runs on **macOS, Windows and Linux**. You need four free tools first:
 Then:
 
 ```bash
-git clone https://github.com/shreytiwari09/HEX-MIND.git
+git clone https://github.com/Cykikz/HEX.git HEX-MIND
 cd HEX-MIND
 npm run setup     # checks the tools, creates .env with fresh secrets, installs, starts the database
 npm start         # starts the backend and opens the app
 ```
 
 `npm run setup` is safe to run again. It never overwrites your `.env` and never prints a secret.
+
+**Windows quick launch.** With an existing desktop build, backend environment, and configured PostgreSQL database, double-click [`Start HEX.cmd`](Start%20HEX.cmd). It opens the built desktop app and starts the backend with `uv --no-sync`. To start the CrewAI service for real missions, set `HEXMIND_CREW_SERVICE_AUTOSTART=true` in `.env` and have Docker running for sandbox checks.
 
 **Prefer a normal app icon?** `npm run package` builds an installer for the computer you run it on (`.dmg` on macOS, `.exe` on Windows, `AppImage` on Linux) in `apps/desktop/release/`. The installer holds the desktop app; start the backend with `npm run backend` before opening it. Builds are not code-signed, so macOS asks you to confirm the first launch (right-click → Open).
 
@@ -100,6 +119,10 @@ npm start         # starts the backend and opens the app
 4. **Try it before you keep it.** When the mission ends, a web app starts automatically and its link appears in chat. Say *"run it"* any time, *"run 12 / 4"* for a command-line program, or *"open terminal"* for a shell in the sandbox.
 5. **Review changes → Apply** (or Discard). Applied work is one commit; **Revert** undoes it. The team's working copy is deleted once you apply.
 6. **Next steps** (on the mission screen): **Prepare for GitHub** adds `.env.example`, a CI workflow that runs your tests on every push, Dependabot and deploy notes; **Publish** creates a private GitHub repository with your own `gh` login (H.E.X never sees a GitHub token) and pushes it.
+
+<p align="center">
+  <img src="docs/images/mission.webp" alt="H.E.X Mind Mission Control showing mission progress, the agent team, and feature activity" width="900">
+</p>
 
 ---
 
@@ -146,7 +169,7 @@ The trade-offs: it costs money every month (database and compute), you need sign
 ```mermaid
 flowchart TB
     subgraph Desktop["Desktop app (Electron)"]
-        UI["Editor · Explorer · Chat · Missions"]
+        UI["Editor · Explorer · Chat · Missions · Town"]
         OBS["Observability · Metrics · Experiments"]
     end
 
@@ -279,9 +302,11 @@ A November 2026 survey of 17 tools ([full report with sources](research_notes/Ag
 
 ## Status and future scope
 
-**Built and tested:** 1,029 backend tests and 301 desktop tests pass; phases P1 to P8 of the [PRD](PRD.md) (missions, team models with Auto, skills and plugins, observability, metrics, the evaluation harness), plus a live team view, a terminal into the project's sandbox, running web apps and command-line programs from chat, and one-click preparation and publishing to GitHub. Real missions have run end to end on free models. The macOS installer has been built and opened; the Windows and Linux installers use the same configuration but have not been tried on those systems.
+**Implemented:** local missions, per-role models, skills and plugins, observability, HEX Town, the Windows launcher, all 16 workspace MCP tools, and the E1–E6 evaluation code. E1 has six patterns, E2 compares serial and parallel builders on Text Toolkit, and E6 has a separate [router evaluation CLI](docs/routing-labels.md#e6-router-comparison).
 
-**Known limits today:** the installer holds the desktop app only (start the backend with `npm run backend`); missions need Git, which H.E.X offers to set up; builds are unsigned; the routing experiment (E6) uses 150 labels written by the assistant, not by people ([D85](PRD.md)).
+**Verified so far:** the Windows desktop build, local migration `0023`, and the offline Town sample in Electron. Recent static checks passed. Functional suites and controlled benchmark runs are still pending. E3 needs distinct tested model routes, and E6 needs human-reviewed labels for the final comparison. See the [testing handoff](docs/testing-handoff.md) and [course requirements coverage](PRD.md#16-course-requirements-coverage).
+
+**Packaging:** the installer contains the desktop app. Run the backend separately. Builds are unsigned.
 
 ### Future scope
 
@@ -297,7 +322,7 @@ Everything below is deliberately **not built yet**. Each item has a reason in th
 | **Workflow** | Plan approval as an editable spec; undo to a milestone; best-of-N attempts per feature; resume or fork a run from a checkpoint; later missions as pull requests | Finer control and safer iteration |
 | **Observability** | One run view with tree, timeline and graph sharing a selection; a graph that lights the active agent from recorded events; a built-in terminal | See [Live agent progress UX](research_notes/Live%20agent%20progress%20UX.md) |
 | **Install** | Bundle the Python backend into the installer; code signing for macOS and Windows; auto-update; automatic Git setup; an opt-in "work directly in my folder" mode with the sandbox kept for running code | One download that just runs |
-| **Evaluation** | The scikit-learn baseline and experiment E6 (needs approval of the dependency and, ideally, a human check of the labels); experiments E2 and E3; an LLM judge | Measured, reproducible results |
+| **Evaluation extensions** | An LLM judge and human spot checks | Additional quality evidence for the benchmark |
 
 ---
 
