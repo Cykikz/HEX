@@ -370,6 +370,7 @@ class ProviderRouter:
                     run_id=ctx.run_id,
                     task_id=ctx.task_id,
                     purpose=request.purpose,
+                    agent_id=ctx.agent_id,
                     provider=result.provider,
                     model=result.model,
                     input_tokens=result.input_tokens,

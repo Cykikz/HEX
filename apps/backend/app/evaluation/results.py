@@ -8,7 +8,7 @@ when their 95% intervals do not overlap, which with a few trials is rare, and th
 
 import math
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -68,6 +68,8 @@ class Summary:
     model_routes: dict[str, Any] = field(default_factory=dict)
     budget_usd: str | None = None
     comparison_id: str | None = None
+    benchmark_version: str | None = None
+    parallel_counts: dict[str, int] | None = None
 
 
 def summarize(condition: str, rows: list[EvalRun], slug_of: dict[Any, str]) -> Summary:
@@ -78,6 +80,12 @@ def summarize(condition: str, rows: list[EvalRun], slug_of: dict[Any, str]) -> S
         out.model_routes = config.get("model_routes", {})
         out.budget_usd = config.get("budget_usd")
         out.comparison_id = config.get("comparison_id")
+        out.benchmark_version = rows[0].benchmark_version
+    if any("parallel_counts" in (row.config or {}) for row in rows):
+        counts: Counter[str] = Counter()
+        for row in rows:
+            counts.update((row.config or {}).get("parallel_counts", {}))
+        out.parallel_counts = dict(counts)
     out.completed = sum(1 for r in graded if r.completed)
     out.passed = sum(1 for r in graded if r.passed)
     if graded:
@@ -121,18 +129,24 @@ async def collect(session: AsyncSession, experiment: str) -> dict[str, Any]:
             .order_by(EvalRun.created_at, EvalRun.repeat)
         )
     )
+    versions = sorted({r.benchmark_version or "?" for r in rows})
+
+    def name(row: EvalRun) -> str:
+        condition = row.condition or "?"
+        return f"{condition} ({row.benchmark_version or '?'})" if len(versions) > 1 else condition
+
     by_condition: dict[str, list[EvalRun]] = defaultdict(list)
     for r in rows:
-        by_condition[r.condition or "?"].append(r)
+        by_condition[name(r)].append(r)
     summaries = [summarize(c, rs, slugs) for c, rs in by_condition.items()]
     return {
         "experiment": experiment,
         "trials": len(rows),
-        "benchmark_versions": sorted({r.benchmark_version or "?" for r in rows}),
+        "benchmark_versions": versions,
         "conditions": summaries,
         "errors": [
             {
-                "condition": r.condition,
+                "condition": name(r),
                 "app": slugs[r.eval_task_id].removeprefix("mission-"),
                 "repeat": r.repeat,
                 "error": r.error,
@@ -240,11 +254,27 @@ def _reading(data: dict[str, Any]) -> list[str]:
                 models.append(f"{persona}: {primary}{suffix}")
             lines.append(f"- {s.condition}, USD {s.budget_usd} per trial: " + "; ".join(models))
         lines.append("")
+    if any(s.parallel_counts is not None for s in summaries):
+        lines += ["Parallel integration totals:", ""]
+        for s in summaries:
+            counts = s.parallel_counts
+            if counts is None:
+                continue
+            budget = f" (USD {s.budget_usd} per trial)" if s.budget_usd is not None else ""
+            lines.append(
+                f"- {s.condition}{budget}: {counts.get('waves', 0)} waves, "
+                f"{counts.get('overlap_files', 0)} overlapping files, "
+                f"{counts.get('duplicate_files', 0)} duplicate edits, "
+                f"{counts.get('integration_conflicts', 0)} integration conflicts, "
+                f"{counts.get('merge_failures', 0)} Git merge failures, "
+                f"{counts.get('serial_retries', 0)} serial retries."
+            )
+        lines.append("")
     pairs = [
         (a, b)
         for i, a in enumerate(summaries)
         for b in summaries[i + 1 :]
-        if a.comparison_id == b.comparison_id
+        if a.comparison_id == b.comparison_id and a.benchmark_version == b.benchmark_version
     ]
     if pairs:
         differing = [(a.condition, b.condition) for a, b in pairs if distinguishable(a, b)]

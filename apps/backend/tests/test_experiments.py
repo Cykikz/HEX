@@ -33,12 +33,14 @@ APP_ID = "todo-login"
 
 def test_only_the_experiments_that_can_run_are_runnable() -> None:
     catalog = exp.experiments(["terse"])
-    assert [e.id for e in catalog.values() if not e.blocked] == ["E1", "E4", "E5"]
-    for blocked in ("E2", "E3", "E6"):
+    assert [e.id for e in catalog.values() if not e.blocked] == ["E1", "E2", "E4", "E5"]
+    for blocked in ("E3", "E6"):
         assert catalog[blocked].blocked and not catalog[blocked].conditions
     assert exp.experiments()["E5"].blocked  # nothing to compare the baseline with
     assert [c.id for c in catalog["E5"].conditions] == ["baseline", "variant:terse"]
     assert {c.coordination for c in catalog["E4"].conditions} == {"blackboard", "messaging"}
+    assert {c.pattern for c in catalog["E2"].conditions} == {"mission", "parallel"}
+    assert catalog["E2"].app_ids == ("text-toolkit",)
 
 
 def test_trials_keep_the_repeats_innermost_and_refuse_a_blocked_experiment() -> None:
@@ -48,7 +50,7 @@ def test_trials_keep_the_repeats_innermost_and_refuse_a_blocked_experiment() -> 
     assert {t.repeat for t in trials[:4]} == {0}  # every condition and app has repeat 0 first
     assert len({t.key for t in trials}) == len(trials)
     with pytest.raises(ValueError, match="cannot run"):
-        exp.plan_trials(exp.experiments()["E2"], ["a"], 1)
+        exp.plan_trials(exp.experiments()["E6"], ["a"], 1)
     with pytest.raises(ValueError, match="at least 1"):
         exp.plan_trials(exp.E4, ["a"], 0)
 
@@ -218,10 +220,12 @@ async def test_the_experiments_api_lists_runs_and_reports(
         "expense-tracker",
         "habit-tracker",
         "inventory",
+        "text-toolkit",
     }
-    assert by_id["E4"]["blocked"] is None and by_id["E2"]["blocked"]
+    assert by_id["E4"]["blocked"] is None and by_id["E2"]["blocked"] is None
+    assert by_id["E2"]["app_ids"] == ["text-toolkit"]
 
-    assert (await client.post("/api/experiments/E2/run", json={})).status_code == 409
+    assert (await client.post("/api/experiments/E6/run", json={})).status_code == 409
     assert (await client.post("/api/experiments/E5/run", json={})).status_code == 409
     assert (await client.post("/api/experiments/E9/run", json={})).status_code == 404
     assert (

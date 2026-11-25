@@ -1,0 +1,43 @@
+id: text-toolkit
+idea: Build a small CommonJS toolkit with independent label and word-count utilities and a summary that combines them.
+parallel_pairs:
+  - [slug-label, count-words]
+plan:
+  title: Text toolkit
+  milestones:
+    - id: helpers
+      title: Independent text helpers
+      validators: []
+      features:
+        - id: slug-label
+          title: Normalize labels as slugs
+          persona: backend
+          description: Implement CommonJS src/slug.js, export slug(text), and add src/slug.test.js. This module is self-contained.
+          expected_behavior:
+            - Lowercase the text and replace runs of non-ASCII-letter and non-digit characters with one hyphen.
+            - Remove leading and trailing hyphens. A string with no letters or digits returns an empty string.
+          target_files: [src/slug.js, src/slug.test.js]
+        - id: count-words
+          title: Count words in text
+          persona: backend
+          description: Implement CommonJS src/words.js, export countWords(text), and add src/words.test.js. This module is self-contained.
+          expected_behavior:
+            - Count runs of ASCII letters and digits. Characters outside those groups separate words.
+            - Return zero when no words occur.
+          target_files: [src/words.js, src/words.test.js]
+    - id: summary
+      title: Compose a text summary
+      validators: []
+      features:
+        - id: summarize-text
+          title: Combine both text helpers
+          persona: backend
+          description: After both helpers exist, implement CommonJS src/summary.js, export summarize(text), and add src/summary.test.js.
+          expected_behavior:
+            - Use slug and countWords to return an object with slug and wordCount keys.
+            - Keep both helper files unchanged.
+          target_files: [src/summary.js, src/summary.test.js]
+  validation_contract:
+    - {id: VC-1, text: Labels normalize to lowercase slugs, how: unit test, feature: slug-label}
+    - {id: VC-2, text: Non-word separators do not inflate the count, how: unit test, feature: count-words}
+    - {id: VC-3, text: A summary combines the two helper results, how: unit test, feature: summarize-text}

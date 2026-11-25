@@ -27,7 +27,7 @@ from app.sandbox.runner import CheckOutcome
 BENCH_DIR = Path(__file__).with_name("mission_benchmark")
 SEED_DIR = BENCH_DIR / "seed"
 # Bump when an app, a plan or a hidden test changes: results of different versions do not compare.
-BENCHMARK_VERSION = "m2"  # m1 had three apps; m2 adds habit-tracker and inventory
+BENCHMARK_VERSION = "m3"  # adds text-toolkit, an explicit parallel workload
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,7 @@ class MissionApp:
     id: str
     idea: str
     plan: dict[str, Any]
+    parallel_pairs: tuple[tuple[str, str], ...] = ()
 
     @property
     def directory(self) -> Path:
@@ -60,8 +61,39 @@ def load_apps() -> list[MissionApp]:
     apps = []
     for path in sorted((BENCH_DIR / "apps").glob("*/app.yaml")):
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        MissionPlan.model_validate(data["plan"])  # the plan must be one the app accepts
-        apps.append(MissionApp(id=data["id"], idea=data["idea"], plan=data["plan"]))
+        plan = MissionPlan.model_validate(data["plan"])
+        adjacent = {
+            (a.id, b.id): (a, b)
+            for milestone in plan.milestones
+            for a, b in zip(milestone.features, milestone.features[1:], strict=False)
+        }
+        pairs: list[tuple[str, str]] = []
+        used: set[str] = set()
+        for group in data.get("parallel_pairs", []):
+            if (
+                not isinstance(group, list)
+                or len(group) != 2
+                or not all(isinstance(key, str) for key in group)
+            ):
+                raise ValueError(f"{path}: expected a pair of feature ids")
+            pair = (group[0], group[1])
+            if pair not in adjacent or used.intersection(group):
+                raise ValueError(f"{path}: parallel features must be adjacent and paired once")
+            a, b = adjacent[pair]
+            if (
+                a.preconditions
+                or b.preconditions
+                or not a.target_files
+                or not b.target_files
+                or {name.casefold() for name in a.target_files}
+                & {name.casefold() for name in b.target_files}
+            ):
+                raise ValueError(
+                    f"{path}: parallel features need independent declared write scopes"
+                )
+            used.update(group)
+            pairs.append(pair)
+        apps.append(MissionApp(data["id"], data["idea"], data["plan"], tuple(pairs)))
     ids = [a.id for a in apps]
     if len(set(ids)) != len(ids):
         raise ValueError("duplicate mission benchmark ids")

@@ -6,8 +6,7 @@ mission ends, the hidden tests grade the worktree in the sandbox, and the trial 
 `eval_runs` with the numbers measured from the record (`llm_calls`, events, needs). Nothing in a
 trial is estimated or claimed by an agent.
 
-Runnable now: **E1** (team patterns), **E4** (blackboard vs messaging), and **E5** (named
-prompt/skill variants against the baseline). The other experiments report why they are blocked.
+The catalog describes each runnable experiment and the setup it needs. E6 uses its own CLI.
 
 Trials are resumable: a trial that already has a stored result is skipped, so a sweep that was
 stopped by a rate limit continues where it left off.
@@ -22,6 +21,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -58,7 +58,7 @@ class Condition:
 
 
 SINGLE_AGENT = "backend"  # the one persona that builds everything in the single-agent pattern
-PATTERNS = ("single", "mission", "pipeline", "adaptive", "reflection")
+PATTERNS = ("single", "mission", "pipeline", "adaptive", "reflection", "parallel")
 UI_EXTENSIONS = frozenset({".jsx", ".tsx", ".vue", ".svelte"})
 UI_TOPICS = frozenset({"layout", "screen", "ui"})
 DATA_TOPICS = frozenset(
@@ -86,6 +86,7 @@ def apply_pattern(plan: dict[str, Any], pattern: str) -> dict[str, Any]:
     - `pipeline`: plan, build, then one code review at the end of each milestone.
     - `adaptive`: route features to specialists from their planned titles and target files.
     - `reflection`: use the same review gate as pipeline, with a repair and re-review on failure.
+    - `parallel`: retain the plan and opt in to the app's explicitly declared parallel pairs.
     """
     if pattern not in PATTERNS:
         raise ValueError(f"unknown pattern {pattern!r}")
@@ -112,10 +113,10 @@ class Experiment:
     conditions: tuple[Condition, ...] = ()
     blocked: str | None = None  # why it cannot run yet; None when it can
     note: str | None = None  # what the comparison does and does not cover
+    app_ids: tuple[str, ...] | None = None  # None means the complete mission benchmark
 
 
 BLOCKED = {
-    "E2": "needs parallel builders, which are not built; features are built one after another",
     "E6": (
         "uses the separate app.evaluation.router_baseline CLI with a labeled holdout "
         "(see docs/routing-labels.md)"
@@ -140,14 +141,38 @@ E1 = Experiment(
         Condition("pipeline-review-only", "Pipeline: build then review once", pattern="pipeline"),
         Condition("adaptive", "Adaptive: assign by feature", pattern="adaptive"),
         Condition("reflection", "Reflection: review and repair", pattern="reflection"),
+        Condition("parallel", "Parallel: independent pairs", pattern="parallel"),
     ),
     note=(
-        "Five of the six patterns are available. Parallel remains pending. Pipeline and reflection "
+        "All six patterns are implemented. Parallel overlaps only declared independent pairs "
+        "and follows the normal order on other workloads. Pipeline and reflection "
         "use the same reviewers. Pipeline reviews once; reflection can repair blocking findings "
         "and review again. Earlier pipeline trials keep their original condition ID. Adaptive "
         "assigns specialists from the plan and uses the mission's existing validation."
     ),
 )
+
+
+def e2(budget_usd: Decimal) -> Experiment:
+    apps = tuple(app.id for app in missions.load_apps() if app.parallel_pairs)
+    comparison = sha256(str(budget_usd.normalize()).encode()).hexdigest()[:12]
+    return Experiment(
+        id="E2",
+        title="Serial vs parallel",
+        question="What changes when independent features are built concurrently?",
+        varies="feature scheduling",
+        conditions=(
+            Condition(f"serial-{comparison}", "Serial: one builder at a time"),
+            Condition(f"parallel-{comparison}", "Parallel: isolated builders", pattern="parallel"),
+        ),
+        note=(
+            "Both conditions use the same plan, checks and handoff gates. Parallel joins the "
+            "two isolated candidates in plan order. Overlap, duplicate edits and merge failures "
+            "come from the recorded candidate changes."
+        ),
+        app_ids=apps,
+    )
+
 
 E4 = Experiment(
     id="E4",
@@ -202,18 +227,16 @@ def experiments(
             "qualifies. Ordinary fallback models are excluded."
         ),
     )
-    found = {"E1": E1, "E3": e3, "E4": E4, "E5": e5(variants)}
+    found = {"E1": E1, "E2": e2(budget_usd), "E3": e3, "E4": E4, "E5": e5(variants)}
     for exp_id, reason in BLOCKED.items():
         found[exp_id] = Experiment(exp_id, _TITLES[exp_id], _QUESTIONS[exp_id], "", (), reason)
     return dict(sorted(found.items()))
 
 
 _TITLES = {
-    "E2": "Serial vs parallel",
     "E6": "Router",
 }
 _QUESTIONS = {
-    "E2": "Do parallel builders conflict?",
     "E6": "LLM Router vs scikit-learn baseline",
 }
 
@@ -238,6 +261,12 @@ def plan_trials(experiment: Experiment, app_ids: Iterable[str], repeats: int) ->
     if repeats < 1:
         raise ValueError("repeats must be at least 1")
     apps = list(app_ids)
+    if experiment.app_ids is not None:
+        unsupported = sorted(set(apps) - set(experiment.app_ids))
+        if unsupported:
+            raise ValueError(
+                f"unsupported mission benchmark apps for {experiment.id}: {', '.join(unsupported)}"
+            )
     return [
         Trial(experiment.id, condition, app_id, repeat)
         for repeat in range(repeats)
@@ -275,7 +304,11 @@ async def finished_keys(session: AsyncSession, experiment: str) -> set[tuple[str
     rows = await session.execute(
         select(EvalRun.condition, EvalTask.slug, EvalRun.repeat)
         .join(EvalTask, EvalTask.id == EvalRun.eval_task_id)
-        .where(EvalRun.experiment == experiment, EvalRun.status != "error")
+        .where(
+            EvalRun.experiment == experiment,
+            EvalRun.status != "error",
+            EvalRun.benchmark_version == missions.BENCHMARK_VERSION,
+        )
     )
     return {
         (experiment, condition or "", slug.removeprefix("mission-"), repeat)
@@ -323,6 +356,8 @@ async def run_trial(
             )
             if routes is not None:
                 mission.model_overrides = delegation.snapshot(routes)
+            if trial.condition.pattern == "parallel" and app.parallel_pairs:
+                mission.parallel_state = {"pairs": [list(pair) for pair in app.parallel_pairs]}
             mission_id = mission.id
             await service.set_status(
                 session, mission.id, "running", only_from=("awaiting_approval",), reason="trial"
@@ -418,6 +453,23 @@ async def _record(
             "variant_id": trial.condition.variant_id,
             "pattern": trial.condition.pattern,
             "repair_review_findings": trial.condition.repair_review_findings,
+            **(
+                {
+                    "budget_usd": format(budget_usd.normalize(), "f"),
+                    "comparison_id": trial.condition.id.rsplit("-", 1)[-1],
+                }
+                if trial.experiment == "E2"
+                else {}
+            ),
+            **(
+                {
+                    "parallel_counts": (mission.parallel_state or {}).get("counts", {})
+                    if mission
+                    else {}
+                }
+                if trial.experiment == "E2" or trial.condition.pattern == "parallel"
+                else {}
+            ),
             **(
                 {
                     "model_routes": delegation.snapshot(trial.condition.model_routes),

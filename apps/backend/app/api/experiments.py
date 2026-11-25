@@ -39,11 +39,11 @@ async def _catalog(
     known = [row.id for row in await variants.all_rows(session)]
     selected = chosen if chosen is not None else known
     if services.catalog is None:
-        return exp.experiments(selected)
+        return exp.experiments(selected, budget_usd=budget_usd)
     try:
         presets = await delegation.presets(session, services.catalog)
     except delegation.DelegationSetupError as exc:
-        return exp.experiments(selected, delegation_blocked=str(exc))
+        return exp.experiments(selected, delegation_blocked=str(exc), budget_usd=budget_usd)
     return exp.experiments(selected, delegation_presets=presets, budget_usd=budget_usd)
 
 
@@ -75,6 +75,7 @@ async def list_experiments(session: SessionDep, services: ServicesDep) -> dict[s
                 ],
                 "blocked": e.blocked,
                 "note": e.note,
+                "app_ids": e.app_ids,
             }
             for e in catalog.values()
         ],
@@ -109,7 +110,12 @@ async def run_experiment(
         sweep = await exp.start_sweep(
             services,
             experiment,
-            app_ids=body.apps or [a.id for a in missions.load_apps()],
+            app_ids=body.apps
+            or (
+                experiment.app_ids
+                if experiment.app_ids is not None
+                else [a.id for a in missions.load_apps()]
+            ),
             repeats=body.repeats,
             budget_usd=body.budget_usd,
             sweeps=sweeps,

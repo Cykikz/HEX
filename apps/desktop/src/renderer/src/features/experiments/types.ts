@@ -13,6 +13,7 @@ export interface ExperimentInfo {
   blocked: string | null
   /** What the comparison does and does not cover. */
   note?: string | null
+  app_ids?: string[] | null
 }
 
 export interface Listing {
@@ -53,6 +54,8 @@ export interface ConditionSummary {
   tokens_out_mean: number | null
   by_app: Record<string, [number, number]>
   comparison_id?: string | null
+  benchmark_version?: string | null
+  parallel_counts?: Record<string, number> | null
 }
 
 export interface ExperimentResults {

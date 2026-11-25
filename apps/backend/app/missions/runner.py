@@ -1,8 +1,9 @@
 """The MissionRunner: a deterministic loop over a mission's features (PRD §8.3, §8.4, §8.6,
 §12.3; decision D25: a custom ADK `BaseAgent`, not Sequential/Loop agents).
 
-Features run **one at a time**, each starting from the code the previous one committed. For
-each feature the runner:
+Features normally run one at a time, sharing committed checkpoints. The benchmark can draft an
+explicit independent pair in detached worktrees, then apply the usual checks and checkpoints in
+plan order. For each feature the runner:
 
 1. calls the feature's persona over A2A (the CrewAI `persona` crew) in the mission worktree;
 2. fills in the facts the agent cannot be trusted with: changed files from git, the quick check
@@ -139,6 +140,21 @@ class Attempt:
     detail: str = ""
 
 
+@dataclass
+class PreparedAttempt:
+    request: PersonaRequest
+    persona: Persona
+    started: object
+
+
+@dataclass
+class Candidate:
+    work: PreparedAttempt
+    report: AgentReport | Attempt
+    paths: set[str]
+    commit: str | None = None
+
+
 class MissionRunner:
     def __init__(
         self, services: Services, mission_id: uuid.UUID, *, repair_review_findings: bool = True
@@ -157,6 +173,7 @@ class MissionRunner:
         self.variant: Variant | None = None
         # How this mission shares state (PRD §9.8): 'blackboard' or 'messaging'.
         self.coordination = "blackboard"
+        self.parallel_pairs: dict[str, str] = {}
         # E1's pipeline condition stops after its first code review.
         self._validation_rounds = MAX_VALIDATION_ROUNDS if repair_review_findings else 1
 
@@ -175,6 +192,7 @@ class MissionRunner:
             except variants.VariantError as exc:
                 raise MissionAborted(str(exc)) from None
         self.coordination = mission.coordination
+        self.parallel_pairs = dict((mission.parallel_state or {}).get("pairs", []))
         self.run_id = run.id
         self.workspace = Path(project.workspace_path)
         self.worktree = Path(run.worktree_path)
@@ -266,9 +284,8 @@ class MissionRunner:
             if status not in ("completed", "failed"):  # features still to build
                 await self._set_milestone(milestone_id, "active")
                 await self._write_acceptance_tests(milestone_id)
-                for key in await self._open_feature_keys(milestone_id):
-                    if await self._build_feature(key) != "done":
-                        return await self._settle()
+                if not await self._build_milestone(milestone_id):
+                    return await self._settle()
                 await self._set_milestone(milestone_id, "completed")
             if await self._validate(milestone_id) != "ok":
                 return await self._settle()
@@ -277,6 +294,8 @@ class MissionRunner:
     async def _back_to_last_checkpoint(self) -> None:
         """Start from the last committed state: work that was in flight when the mission was
         paused or interrupted is discarded, and its feature starts over."""
+        if self.parallel_pairs:
+            await run_in_threadpool(self._remove_parallel_worktrees)
         head = await run_in_threadpool(git.head, self.worktree)
         await run_in_threadpool(git.reset_to, self.worktree, head)
         async with self.services.sessionmaker.begin() as session:
@@ -290,6 +309,10 @@ class MissionRunner:
                 await service.set_feature(session, mission, feature, "pending")
             await session.flush()
             await service.sync_mission_folder(session, mission, self.worktree)
+            if mission.validation_contract:
+                await run_in_threadpool(
+                    folder.write_validation_contract, self.worktree, mission.validation_contract
+                )
 
     # ---------- plan traversal ----------
 
@@ -338,6 +361,174 @@ class MissionRunner:
             )
         return status == "running"
 
+    # ---------- experimental parallel pairs ----------
+
+    @property
+    def _parallel_scratch(self) -> Path:
+        return self.worktree.parent / f"{self.run_id.hex}-parallel"
+
+    def _remove_parallel_worktrees(self) -> None:
+        scratch = self._parallel_scratch
+        if scratch.is_symlink() or scratch.resolve().parent != self.worktree.parent.resolve():
+            raise MissionAborted("the parallel worktree directory is outside its expected location")
+        if not scratch.exists():
+            return
+        for child in scratch.iterdir():
+            if (
+                not re.fullmatch(r"[0-9a-f]{32}", child.name)
+                or child.is_symlink()
+                or child.resolve().parent != scratch.resolve()
+            ):
+                raise MissionAborted("unexpected path in the parallel worktree directory")
+            git.remove_worktree(self.workspace, child)
+        scratch.rmdir()
+
+    async def _build_milestone(self, milestone_id: uuid.UUID) -> bool:
+        keys = iter(await self._open_feature_keys(milestone_id))
+        key = next(keys, None)
+        while key is not None:
+            following = next(keys, None)
+            if (
+                following is not None
+                and self.parallel_pairs.get(key) == following
+                and await self._attempts(key) == await self._attempts(following) == 0
+            ):
+                if not await self._build_pair(key, following):
+                    return False
+                key = next(keys, None)
+            else:
+                if await self._build_feature(key) != "done":
+                    return False
+                key = following
+        return True
+
+    async def _parallel_counts(self, **counts: int) -> None:
+        async with self.services.sessionmaker.begin() as session:
+            mission = await session.get(Mission, self.mission_id)
+            assert mission is not None and mission.parallel_state is not None
+            state = mission.parallel_state
+            previous = dict(state.get("counts", {}))
+            for name, count in counts.items():
+                previous[name] = previous.get(name, 0) + count
+            mission.parallel_state = {**state, "counts": previous}
+
+    async def _build_pair(self, first: str, second: str) -> bool:
+        for key in (first, second):
+            if not await self._running() or await self._budget_stops(key):
+                return False
+        base = await run_in_threadpool(git.head, self.worktree)
+        work = []
+        try:
+            for key in (first, second):
+                path = self._parallel_scratch / uuid.uuid4().hex
+                await run_in_threadpool(git.checkout_commit, self.workspace, base, path)
+                work.append(await self._prepare_attempt(key, 1, None, worktree=path))
+            if not await self._running():
+                return False
+            await self._parallel_counts(waves=1, isolated_attempts=len(work))
+            # Wait for both producers before staging, integrating, or removing their worktrees.
+            reports = await asyncio.gather(
+                *(self._crew_report(item) for item in work), return_exceptions=True
+            )
+            candidates = []
+            for item, report in zip(work, reports, strict=True):
+                if isinstance(report, BaseException):
+                    raise report
+                candidates.append(await run_in_threadpool(self._save_candidate, item, report, base))
+            overlaps, duplicates = await run_in_threadpool(self._candidate_overlap, *candidates)
+            await self._parallel_counts(overlap_files=overlaps, duplicate_files=duplicates)
+            for candidate in candidates:
+                key = candidate.work.request.feature.id
+                if not await self._running() or await self._budget_stops(key):
+                    return False
+                if not await self._integrate_candidate(candidate, base):
+                    return False
+            return True
+        finally:
+            await run_in_threadpool(self._remove_parallel_worktrees)
+
+    def _save_candidate(
+        self, work: PreparedAttempt, report: AgentReport | Attempt, base: str
+    ) -> Candidate:
+        if isinstance(report, Attempt):
+            return Candidate(work, report, set())
+        path = Path(work.request.worktree)
+        paths = {
+            change.path
+            for change in git.diff(path, base)
+            if not change.path.startswith(".hex/mission/")
+        }
+        if not paths:
+            return Candidate(work, Attempt("rejected", NO_CHANGES_FEEDBACK, "no changes"), set())
+        commit = git.candidate_commit(path, sorted(paths), f"Candidate: {work.request.feature.id}")
+        return Candidate(work, report, paths, commit)
+
+    def _candidate_overlap(self, first: Candidate, second: Candidate) -> tuple[int, int]:
+        if first.commit is None or second.commit is None:
+            return 0, 0
+        by_key = {path.casefold(): path for path in first.paths}
+        shared = [
+            (by_key[path.casefold()], path) for path in second.paths if path.casefold() in by_key
+        ]
+        duplicates = sum(
+            git.tree_entry(self.worktree, first.commit, left)
+            == git.tree_entry(self.worktree, second.commit, right)
+            for left, right in shared
+        )
+        return len(shared), duplicates
+
+    async def _integrate_candidate(self, candidate: Candidate, base: str) -> bool:
+        feature = candidate.work.request.feature
+        key = feature.id
+        if isinstance(candidate.report, Attempt):
+            attempt = await self._record_worker_failure(key, candidate.report)
+            if attempt.outcome == "outage":
+                await self._need_provider_outage(key, attempt.detail)
+                return False
+        else:
+            assert candidate.commit is not None
+            current = await run_in_threadpool(git.head, self.worktree)
+            previous = await run_in_threadpool(git.changed_paths, self.worktree, base, current)
+            declared = set(feature.target_files)
+            overlap = {path.casefold() for path in previous} & {
+                path.casefold() for path in candidate.paths
+            }
+            if overlap:
+                await self._parallel_counts(integration_conflicts=1)
+                attempt = await self._rejected(
+                    key,
+                    "Integrated work changed these paths: " + ", ".join(sorted(overlap)),
+                    "overlapping parallel changes",
+                )
+            elif candidate.paths - declared:
+                await self._parallel_counts(out_of_scope=1)
+                attempt = await self._rejected(
+                    key,
+                    "Rebuild against the current worktree; the isolated attempt changed "
+                    "paths outside its declared target files.",
+                    "parallel write scope exceeded",
+                )
+            else:
+                applied, conflict = await run_in_threadpool(
+                    git.apply_candidate, self.worktree, candidate.commit
+                )
+                if applied:
+                    attempt = await self._finish_attempt(candidate.work, candidate.report, current)
+                    if attempt.outcome == "accepted":
+                        return True
+                else:
+                    await run_in_threadpool(git.reset_to, self.worktree, current)
+                    await self._parallel_counts(
+                        merge_failures=1, integration_conflicts=int(conflict)
+                    )
+                    attempt = await self._rejected(
+                        key,
+                        "The isolated changes did not merge. Rebuild on the current worktree.",
+                        "parallel merge failed",
+                    )
+        await self._parallel_counts(serial_retries=1)
+        return await self._build_feature(key, attempt.feedback) == "done"
+
     # ---------- one feature ----------
 
     async def _build_feature(
@@ -376,7 +567,18 @@ class MissionRunner:
         return row
 
     async def _attempt(self, key: str, number: int, feedback: str | None) -> Attempt:
+        work = await self._prepare_attempt(key, number, feedback)
+        before = await run_in_threadpool(git.head, self.worktree)
+        report = await self._crew_report(work)
+        if isinstance(report, Attempt):
+            return await self._record_worker_failure(key, report)
+        return await self._finish_attempt(work, report, before)
+
+    async def _prepare_attempt(
+        self, key: str, number: int, feedback: str | None, *, worktree: Path | None = None
+    ) -> PreparedAttempt:
         assert self.telemetry is not None and self.services.a2a_http is not None
+        destination = worktree or self.worktree
         async with self.services.sessionmaker.begin() as session:
             row = await self._feature(session, key)
             mission = await session.get(Mission, self.mission_id)
@@ -399,9 +601,12 @@ class MissionRunner:
                 )
             ]
             started = await session.scalar(select(func.clock_timestamp()))
-            await service.sync_mission_folder(session, mission, self.worktree)
+            await service.sync_mission_folder(session, mission, destination)
+            if worktree is not None and mission.validation_contract:
+                await run_in_threadpool(
+                    folder.write_validation_contract, destination, mission.validation_contract
+                )
             criteria = self._criteria_for(mission, key)
-        before = await run_in_threadpool(git.head, self.worktree)
         try:
             persona = self.persona(feature.persona)  # the user's edits, and this mission's variant
         except UnknownPersona:
@@ -425,11 +630,15 @@ class MissionRunner:
             )
             for row in ready
         ]
+        exchange_id = uuid.uuid4()
+        agent_id = f"{feature.persona}_{number:02d}"
+        if worktree is not None:
+            agent_id = f"{agent_id}_{exchange_id.hex[:16]}"
         request = PersonaRequest(
-            exchange_id=uuid.uuid4(),
+            exchange_id=exchange_id,
             run_id=self.run_id,
-            agent_id=f"{feature.persona}_{number:02d}",
-            worktree=str(self.worktree),
+            agent_id=agent_id,
+            worktree=str(destination),
             workspace=str(self.workspace),
             persona_id=feature.persona,
             persona=persona,
@@ -443,6 +652,11 @@ class MissionRunner:
             # Cascade principle (PRD §10.5): escalate only when earlier attempts failed.
             escalate=number >= MAX_ATTEMPTS,
         )
+        return PreparedAttempt(request, persona, started)
+
+    async def _crew_report(self, work: PreparedAttempt) -> AgentReport | Attempt:
+        assert self.telemetry is not None and self.services.a2a_http is not None
+        feature = work.request.feature
         try:
             text = await self._call_worker(
                 role="persona",
@@ -450,24 +664,35 @@ class MissionRunner:
                 http=self.services.a2a_http,
                 settings=self.services.settings,
                 prompt=f"Feature {feature.id}: {feature.title}",
-                request=request,
+                request=work.request,
                 parent="mission_runner",
             )
         except CrewCallFailed as exc:
             message = str(exc)
             if PROVIDER_FAILURE_MARKER in message:
-                await self._reset_feature(key)
                 return Attempt("outage", detail=message[:500])
-            return await self._rejected(
-                key, f"The previous attempt failed: {message[:600]}", message[:500]
+            return Attempt(
+                "rejected", f"The previous attempt failed: {message[:600]}", message[:500]
             )
         try:
-            report = AgentReport.model_validate_json(text)
+            return AgentReport.model_validate_json(text)
         except ValidationError as exc:
-            return await self._rejected(
-                key, f"Your report was not valid: {str(exc)[:400]}", "invalid report"
+            return Attempt(
+                "rejected", f"Your report was not valid: {str(exc)[:400]}", "invalid report"
             )
 
+    async def _record_worker_failure(self, key: str, attempt: Attempt) -> Attempt:
+        if attempt.outcome == "outage":
+            await self._reset_feature(key)
+            return attempt
+        return await self._rejected(key, attempt.feedback or attempt.detail, attempt.detail)
+
+    async def _finish_attempt(
+        self, work: PreparedAttempt, report: AgentReport, before: str
+    ) -> Attempt:
+        request, persona, started = work.request, work.persona, work.started
+        feature = request.feature
+        key = feature.id
         changes = await run_in_threadpool(git.diff, self.worktree, before)
         files_changed = [c.path for c in changes if not c.path.startswith(".hex/")]
         if not files_changed:
@@ -479,7 +704,9 @@ class MissionRunner:
         if failed is not None:
             return await self._rejected(key, check_feedback(failed), "the quick check failed")
 
-        model_used, tokens_in, tokens_out, cost = await self._usage(started)
+        model_used, tokens_in, tokens_out, cost = await self._usage(
+            started, agent_id=request.agent_id if self.parallel_pairs else None
+        )
         handoff = Handoff.assemble(
             report,
             feature=feature,
@@ -500,7 +727,7 @@ class MissionRunner:
             skills=await self._skills_used(persona, feature, request.agent_id, started),
             persona_version=persona.version,
             variant_id=self.variant_id,
-            plugins=await self._plugins_used(plugins, request.agent_id, started),
+            plugins=await self._plugins_used(request.plugins, request.agent_id, started),
         )
         await self._checkpoint(key, handoff)
         return Attempt("accepted")
@@ -697,9 +924,11 @@ class MissionRunner:
             )
         return outcome
 
-    async def _usage(self, since: object) -> tuple[str, int, int, Decimal]:
-        """Model, tokens and cost of the calls made since `since` (features build serially, so
-        the window belongs to this feature)."""
+    async def _usage(
+        self, since: object, *, agent_id: str | None = None
+    ) -> tuple[str, int, int, Decimal]:
+        """Measure this attempt's calls, filtering by agent for overlapping attempts."""
+        agent_filter = [LLMCall.agent_id == agent_id] if agent_id is not None else []
         async with self.services.sessionmaker() as session:
             rows = (
                 await session.execute(
@@ -715,6 +944,7 @@ class MissionRunner:
                         LLMCall.run_id == self.run_id,
                         LLMCall.created_at >= since,
                         LLMCall.error.is_(None),
+                        *agent_filter,
                     )
                     .group_by(LLMCall.provider, LLMCall.model)
                     .order_by(func.count().desc())
@@ -1214,10 +1444,13 @@ async def execute_mission(
     try:
         await runner.load()
         assert runner.telemetry is not None
+        description = (
+            "Parallel candidates, checks and checkpoints."
+            if runner.parallel_pairs
+            else "Serial features, checks and checkpoints."
+        )
         await run_adk(
-            runner.telemetry.instrument(
-                RunStep("mission_runner", "Serial features, checks and checkpoints.", runner.run)
-            ),
+            runner.telemetry.instrument(RunStep("mission_runner", description, runner.run)),
             message=f"Run mission {mission_id}",
         )
     except Exception as exc:

@@ -253,6 +253,7 @@ class LLMCall(Base):
     run_id: Mapped[uuid.UUID | None] = _fk("runs.id", nullable=True, ondelete="SET NULL")
     task_id: Mapped[uuid.UUID | None] = _fk("tasks.id", nullable=True, ondelete="SET NULL")
     purpose: Mapped[str] = mapped_column(String(32))
+    agent_id: Mapped[str | None] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(String(64))  # a connection's name, or a built-in provider
     model: Mapped[str] = mapped_column(String(128))
     # Which pool key served the call (routed calls only; never the secret itself).
@@ -388,6 +389,8 @@ class Mission(Base):
     variant_id: Mapped[str | None] = mapped_column(String(32))
     # E3 snapshots the routes selected for this trial, including any escalation targets.
     model_overrides: Mapped[dict[str, Any] | None] = mapped_column()
+    # E1/E2 opt-in pairs and measured integration counters. Normal missions leave it unset.
+    parallel_state: Mapped[dict[str, Any] | None] = mapped_column()
     # How the team shares state (PRD §9.8): 'blackboard' (the mission board and folder, readable
     # through tools) or 'messaging' (workers get only what the orchestrator sends).
     coordination: Mapped[str] = mapped_column(

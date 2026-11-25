@@ -94,6 +94,34 @@ def checkout_commit(root: Path, commit: str, path: Path) -> Path:
     return path
 
 
+def candidate_commit(worktree: Path, paths: list[str], message: str) -> str:
+    """Commit only the candidate's project changes in its detached worktree."""
+    _git(worktree, "--literal-pathspecs", *AUTHOR, "commit", "-q", "-m", message, "--", *paths)
+    return head(worktree)
+
+
+def apply_candidate(worktree: Path, commit: str) -> tuple[bool, bool]:
+    """Stage a candidate without committing. The runner owns rollback and verification."""
+    result = _git(worktree, "cherry-pick", "--no-commit", commit, check=False)
+    if result.returncode == 0:
+        return True, False
+    conflict = bool(_git(worktree, "ls-files", "-u", "-z").stdout)
+    _git(worktree, "cherry-pick", "--quit", check=False)
+    return False, conflict
+
+
+def changed_paths(worktree: Path, base: str, commit: str) -> set[str]:
+    result = _git(worktree, "diff", "--name-only", "--no-renames", "-z", base, commit)
+    return {
+        path for path in result.stdout.split("\0") if path and not path.startswith(".hex/mission/")
+    }
+
+
+def tree_entry(worktree: Path, commit: str, path: str) -> str:
+    """A literal path's mode and object ID, or an empty entry for a deletion."""
+    return _git(worktree, "--literal-pathspecs", "ls-tree", "-z", commit, "--", path).stdout
+
+
 def remove_worktree(root: Path, path: Path) -> None:
     _git(root, "worktree", "remove", "--force", str(path), check=False)
     if path.exists():

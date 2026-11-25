@@ -32,7 +32,8 @@ function separated(a: ConditionSummary, b: ConditionSummary): boolean {
 export function Results({ data }: { data: ExperimentResults }) {
   const rows = data.conditions
   const pairs = rows.flatMap((a, i) => rows.slice(i + 1)
-    .filter((b) => a.comparison_id === b.comparison_id).map((b) => [a, b] as const))
+    .filter((b) => a.comparison_id === b.comparison_id && a.benchmark_version === b.benchmark_version)
+    .map((b) => [a, b] as const))
   const apart = pairs.filter(([a, b]) => separated(a, b)).map(([a, b]) => `${a.condition} vs ${b.condition}`)
   return (
     <div className="experiments__results">
@@ -77,11 +78,28 @@ export function Results({ data }: { data: ExperimentResults }) {
         {rows.length < 2
           ? 'One condition so far: there is nothing to compare yet.'
           : pairs.length === 0
-            ? 'Run two conditions with the same model setup and trial budget to compare them.'
+            ? 'Run two conditions under the same benchmark and trial setup to compare them.'
             : apart.length > 0
               ? `Pass rates that differ beyond their intervals: ${apart.join('; ')}.`
               : 'The conditions cannot be told apart on pass rate at this number of trials. That is a null result for now, not evidence that they are equal.'}
       </p>
+      {rows.some((row) => row.parallel_counts != null) && (
+        <details>
+          <summary>Parallel integration totals</summary>
+          <ul>
+            {rows.filter((row) => row.parallel_counts != null).map((row) => (
+              <li key={row.condition}>
+                {row.condition} · {row.parallel_counts?.waves ?? 0} waves ·{' '}
+                {row.parallel_counts?.overlap_files ?? 0} overlapping files ·{' '}
+                {row.parallel_counts?.duplicate_files ?? 0} duplicate edits ·{' '}
+                {row.parallel_counts?.integration_conflicts ?? 0} conflicts ·{' '}
+                {row.parallel_counts?.merge_failures ?? 0} Git merge failures ·{' '}
+                {row.parallel_counts?.serial_retries ?? 0} serial retries
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {data.errors.length > 0 && (
         <details>
           <summary>{data.errors.length} trials errored (not counted in the rates)</summary>
@@ -270,7 +288,7 @@ export function ExperimentsView({ api }: Props) {
                   </details>
                 )}
                 {!active && (
-                  <RunForm api={api} experiment={experiment} apps={listing.apps.map((a) => a.id)} onStarted={() => void load()} />
+                  <RunForm api={api} experiment={experiment} apps={experiment.app_ids ?? listing.apps.map((a) => a.id)} onStarted={() => void load()} />
                 )}
               </>
             )}
