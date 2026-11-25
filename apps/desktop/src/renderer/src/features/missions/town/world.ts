@@ -1,4 +1,4 @@
-import Phaser from 'phaser'
+import Phaser from 'phaser/dist/phaser.min.js'
 
 import type { MemberState } from '../team'
 import { clampCenter, TOWN_CENTER, type TownCamera } from './camera'
@@ -21,6 +21,7 @@ const PORTRAITS: Record<string, number> = {
 const SIGNALS: Record<MemberState, number> = {
   working: 0x9fe399, done: 0x99d2eb, failed: 0xffb094, idle: 0xd8caa1
 }
+const DISTRICT_COLORS = Object.fromEntries(DISTRICT_ORDER.map((id) => [id, Number.parseInt(DISTRICTS[id].color.slice(1), 16)]))
 
 type Direction = (typeof DIRECTIONS)[number]
 
@@ -42,7 +43,7 @@ interface Bridge {
   onAnchor(point: Point): void
   onNearby(name: string | null): void
   onLocation(id: District | null): void
-  onReady(): void
+  onReady(available: boolean): void
 }
 
 interface Walker {
@@ -71,10 +72,13 @@ export function openTown(parent: HTMLElement, bridge: Bridge): Phaser.Game {
     height: TOWN_HEIGHT,
     backgroundColor: '#819956',
     pixelArt: true,
+    fps: { limit: 30 },
     roundPixels: true,
     banner: false,
     audio: { noAudio: true },
     input: { keyboard: false },
+    // Load packaged images directly from the app origin under Electron's image policy.
+    loader: { imageLoadType: 'HTMLImageElement' },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: new TownScene(bridge)
   })
@@ -105,6 +109,11 @@ class TownScene extends Phaser.Scene {
   }
 
   create() {
+    if (!this.textures.exists(TERRAIN) || !this.textures.exists(WALKERS)) {
+      this.bridge.onReady(false)
+      this.scene.stop()
+      return
+    }
     paintTown(this)
     registerWalkingAnimations(this)
     this.player = this.createWalker(center(PLAYER_SPAWN), 0, 'You')
@@ -131,7 +140,7 @@ class TownScene extends Phaser.Scene {
       else this.bridge.onDismiss()
     })
     this.syncResidents(this.bridge.snapshot(), this.time.now)
-    this.bridge.onReady()
+    this.game.events.once(Phaser.Core.Events.POST_RENDER, () => this.bridge.onReady(true))
   }
 
   update(time: number, delta: number) {
@@ -145,7 +154,7 @@ class TownScene extends Phaser.Scene {
     for (const [id, frame] of this.districtFrames) {
       const selected = snapshot.selected?.kind === 'place' && snapshot.selected.id === id
       const alpha = selected ? 1 : this.hoveredPlace === id ? 0.7 : 0
-      frame.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(DISTRICTS[id].color).color, alpha)
+      frame.setStrokeStyle(2, DISTRICT_COLORS[id], alpha)
     }
     const selected = snapshot.selected?.kind === 'resident' ? this.residents.get(snapshot.selected.id) : null
     const place = snapshot.selected?.kind === 'place' ? DISTRICTS[snapshot.selected.id] : null

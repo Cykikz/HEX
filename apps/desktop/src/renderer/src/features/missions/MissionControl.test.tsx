@@ -5,7 +5,9 @@ import type { AgentEvent } from '../../generated/events'
 import { ApiError, type ApiClient } from '../../lib/api'
 import { describeError } from './actions'
 import { MissionScreen } from './MissionControl'
+import { MissionMap } from './MissionMap'
 import { mission } from './fixtures'
+import { TownScreen } from './town/TownScreen'
 import type { Checkpoint, MissionDiff, Need } from './types'
 import type { MissionView } from './useMission'
 import { useMission } from './useMission'
@@ -37,6 +39,7 @@ function makeView(extra: Partial<MissionView> = {}): MissionView & { adopt: Retu
 }
 
 const base = { schema_version: 8 as const, event_id: 'e', run_id: 'r1', ts: '2026-11-19T10:00:00Z', agent_id: null, task_id: null }
+const config = { url: 'http://127.0.0.1:8765', token: 'tok' }
 
 beforeEach(() => {
   vi.stubGlobal('confirm', vi.fn(() => true))
@@ -330,8 +333,6 @@ describe('useMission (live, not polled)', () => {
     }
   }
 
-  const config = { url: 'http://127.0.0.1:8765', token: 'tok' }
-
   beforeEach(() => {
     FakeWebSocket.instances = []
     vi.stubGlobal('WebSocket', FakeWebSocket)
@@ -407,6 +408,38 @@ describe('useMission (live, not polled)', () => {
     expect(result.current.needs.map((n) => n.id)).toEqual(['n1'])
   })
 
+  it('switches Town from sample data to the selected mission without loading checkpoints or needs', async () => {
+    const selected = mission({ title: 'My mission' })
+    const api = makeApi({ '/missions': [selected], '/missions/m1': selected })
+    const select = vi.fn()
+    const open = vi.fn()
+    const props = { api, config, projectId: selected.project_id, onSelectMission: select, onOpenMission: open }
+    const { rerender } = render(<TownScreen {...props} missionId={null} />)
+    const canvasRegion = screen.getByRole('region', { name: /Scroll or pinch/ })
+    await act(async () => {})
+    const sources = screen.getByRole('combobox', { name: 'Town activity' })
+    fireEvent.change(sources, { target: { value: 'm1' } })
+    expect(select).toHaveBeenCalledWith('m1')
+
+    rerender(<TownScreen {...props} missionId="m1" />)
+    expect(screen.getByText('Connecting to mission')).toBeInTheDocument()
+    const [socket] = FakeWebSocket.instances
+    act(() => {
+      socket.push({ type: 'snapshot', mission: selected, last_seq: 0 })
+      socket.push({ type: 'event', event: { ...base, seq: 1, type: 'feature_status_changed', payload: {
+        feature_id: 'a', title: 'Build the search', persona: 'frontend', status: 'in_progress', attempts: 1, commit: null
+      } } })
+      vi.advanceTimersByTime(20)
+    })
+    expect(screen.getByRole('region', { name: /Scroll or pinch/ })).toBe(canvasRegion)
+    fireEvent.click(screen.getByRole('button', { name: /Frontend.*Build the search/ }))
+    expect(screen.getByRole('dialog', { name: 'Frontend' })).toHaveTextContent('Started "Build the search"')
+    fireEvent.click(screen.getByRole('button', { name: 'Open mission details' }))
+    expect(open).toHaveBeenCalledWith('m1')
+    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    expect(api.get.mock.calls.map(([path]) => path)).toEqual(['/missions', '/missions/m1'])
+  })
+
   it('does nothing without a mission id', () => {
     const api = makeApi()
     const { result } = renderHook(() => useMission(api, config, null))
@@ -419,7 +452,7 @@ describe('useMission (live, not polled)', () => {
   })
 })
 
-describe('MissionScreen: agent map', () => {
+describe('Town', () => {
   const featureStarted: AgentEvent = {
     ...base, seq: 1, type: 'feature_status_changed',
     payload: { feature_id: 'c', title: 'Filter', persona: 'frontend', status: 'in_progress', attempts: 1, commit: null }
@@ -429,6 +462,31 @@ describe('MissionScreen: agent map', () => {
     payload: { validator: 'qa', milestone_id: 'm2-b', round: 1 }
   }
 
+  it('opens and plays the sample without contacting the backend or needing a workspace', () => {
+    const api = makeApi()
+    const selectMission = vi.fn()
+    render(<TownScreen api={api} config={config} projectId={null} missionId={null} onSelectMission={selectMission} onOpenMission={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'HEX Town' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Town activity' })).toHaveDisplayValue('Sample mission')
+    const picker = screen.getByRole('combobox', { name: 'Inspect a room or resident' })
+    fireEvent.change(picker, { target: { value: 'place:sandbox' } })
+    expect(screen.getByRole('dialog', { name: 'Test Lab' })).toHaveTextContent('Catalog tests · passed')
+    fireEvent.click(screen.getByRole('button', { name: 'Play sample' }))
+    expect(screen.getByRole('slider', { name: 'Replay position' })).toHaveValue('1')
+    expect(api.get).not.toHaveBeenCalled()
+    expect(api.post).not.toHaveBeenCalled()
+    expect(selectMission).not.toHaveBeenCalled()
+  })
+
+  it('hands the selected mission off to the dedicated Town view', () => {
+    const selected = mission()
+    const openTown = vi.fn()
+    render(<MissionScreen api={makeApi()} view={makeView({ mission: selected })} onOpenTown={openTown} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Town' }))
+    expect(openTown).toHaveBeenCalledWith(selected)
+    expect(screen.queryByRole('region', { name: 'Agent map' })).toBeNull()
+  })
+
   it('shows real agent activity and keeps overlapping sandbox checks on their station', () => {
     const firstCheck: AgentEvent = { ...base, seq: 3, type: 'check_started', agent_id: 'sandbox', payload: { name: 'test' } }
     const secondCheck: AgentEvent = { ...firstCheck, seq: 4 }
@@ -437,10 +495,8 @@ describe('MissionScreen: agent map', () => {
       payload: { name: 'test', exit_code: 1, duration_ms: 100 }
     }
     const events = [featureStarted, qaStarted, firstCheck, secondCheck, result]
-    const api = makeApi()
-    const { rerender } = render(<MissionScreen api={api} view={makeView({ events })} />)
-    expect(screen.queryByRole('region', { name: 'Agent map' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Show agent map' }))
+    const running = mission()
+    const { rerender } = render(<MissionMap mission={running} events={events} />)
     const map = within(screen.getByRole('region', { name: 'Agent map' }))
     const picker = map.getByRole('combobox', { name: 'Inspect a room or resident' })
     expect(map.queryByRole('dialog')).toBeNull()
@@ -462,7 +518,7 @@ describe('MissionScreen: agent map', () => {
     fireEvent.change(picker, { target: { value: 'resident:frontend' } })
     expect(map.getByRole('dialog', { name: 'Frontend' })).toHaveTextContent('Started "Filter"')
 
-    rerender(<MissionScreen api={api} view={makeView({ events: [...events, { ...result, seq: 6 }] })} />)
+    rerender(<MissionMap mission={running} events={[...events, { ...result, seq: 6 }]} />)
     fireEvent.change(picker, { target: { value: 'place:sandbox' } })
     expect(map.getByText('test · failed')).toBeInTheDocument()
     expect(map.queryByText('Running test')).toBeNull()
@@ -471,14 +527,12 @@ describe('MissionScreen: agent map', () => {
     expect(picker).toHaveValue('')
   })
 
-  it('can inspect an earlier replay step and open the live mission diff', async () => {
+  it('can inspect an earlier replay step and return to the latest mission activity', () => {
     const events: AgentEvent[] = [featureStarted, qaStarted, {
       ...base, seq: 3, type: 'handoff_recorded',
       payload: { persona: 'frontend', feature_id: 'c', files_changed: ['src/filter.js'], model_used: 'test', cost_usd: 0, tokens_in: 0, tokens_out: 0 }
     }]
-    const api = makeApi({ '/missions/m1/diff': { run_id: 'r1', base_commit: 'abc', files: [] } })
-    render(<MissionScreen api={api} view={makeView({ mission: mission({ status: 'completed' }), events })} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Show agent map' }))
+    render(<MissionMap mission={mission({ status: 'completed' })} events={events} />)
     const map = within(screen.getByRole('region', { name: 'Agent map' }))
     const picker = map.getByRole('combobox', { name: 'Inspect a room or resident' })
     fireEvent.change(picker, { target: { value: 'place:build' } })
@@ -497,10 +551,6 @@ describe('MissionScreen: agent map', () => {
     }
 
     fireEvent.click(map.getByRole('button', { name: 'Latest' }))
-    await act(async () => {
-      fireEvent.click(map.getByRole('button', { name: 'Open mission diff' }))
-    })
-    expect(screen.getByRole('button', { name: 'Refresh changes' })).toHaveFocus()
-    expect(api.get).toHaveBeenCalledWith('/missions/m1/diff')
+    expect(map.getByText('Frontend · Filter · 1 changed')).toBeInTheDocument()
   })
 })

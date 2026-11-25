@@ -151,7 +151,7 @@ export function TownStage({ snapshot, onInspect, onDismiss, inspector }: Props) 
         onAnchor: (point) => { anchor.current = point; positionPopup() },
         onNearby: (name) => { if (!disposed) setNearby(name) },
         onLocation: (id) => { if (!disposed) setRoom(id) },
-        onReady: () => { if (!disposed) setState('ready') }
+        onReady: (available) => { if (!disposed) setState(available ? 'ready' : 'unavailable') }
       })
     }).catch(() => { if (!disposed) setState('unavailable') })
     return () => {

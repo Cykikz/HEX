@@ -1,5 +1,5 @@
 import { CheckCircle2, CircleAlert, CircleDashed, LoaderCircle, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { AgentEvent } from '../../generated/events'
 import { ago, stepText, teamActivity, type Member, type MemberState } from './team'
@@ -87,16 +87,19 @@ export function TeamRoster({ events, active }: Props) {
   )
 }
 
-export function MemberDrawer({ member, now, onClose, autoScroll = true }: {
+export function MemberDrawer({ member, now, onClose, autoScroll = true, stepLimit, details }: {
   member: Member
   now: number
   onClose: () => void
   autoScroll?: boolean
+  stepLimit?: number
+  details?: ReactNode
 }) {
   const end = useRef<HTMLLIElement>(null)
   useEffect(() => {
     if (autoScroll) end.current?.scrollIntoView?.({ block: 'nearest' })
   }, [autoScroll, member.steps.length])
+  const steps = stepLimit ? member.steps.slice(-stepLimit) : member.steps
   return (
     <aside className="member-drawer" aria-label={`${member.name}: what it did`}>
       <header className="member-drawer__head">
@@ -112,14 +115,16 @@ export function MemberDrawer({ member, now, onClose, autoScroll = true }: {
           <X size={14} />
         </button>
       </header>
+      {details}
       {member.files.length > 0 && (
         <p className="member-drawer__files">
           <strong>Changed:</strong> {member.files.join(', ')}
         </p>
       )}
+      {steps.length < member.steps.length && <p className="mission__muted">Showing the last {steps.length} steps.</p>}
       <ol className="member-drawer__steps">
-        {member.steps.map((step, i) => (
-          <li key={step.seq} data-tone={step.tone} ref={i === member.steps.length - 1 ? end : undefined}>
+        {steps.map((step, i) => (
+          <li key={step.seq} data-tone={step.tone} ref={i === steps.length - 1 ? end : undefined}>
             <time dateTime={step.ts}>{new Date(step.ts).toLocaleTimeString()}</time>
             <span>{step.text}</span>
           </li>

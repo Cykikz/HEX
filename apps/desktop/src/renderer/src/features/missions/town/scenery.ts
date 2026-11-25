@@ -24,9 +24,10 @@ const GARDENS: readonly [number, number, number][] = [
 
 export function paintTown(scene: Phaser.Scene) {
   const ground = scene.add.renderTexture(0, 0, TOWN_WIDTH, TOWN_HEIGHT).setOrigin(0)
-  const tile = (frame: number, x: number, y: number) => ground.drawFrame(TERRAIN, frame, x * TILE, y * TILE)
+  const tile = (frame: number, x: number, y: number) => ground.batchDrawFrame(TERRAIN, frame, x * TILE, y * TILE)
   const ink = scene.add.graphics()
 
+  ground.beginDraw()
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLUMNS; x++) {
       const noise = ((x * 73) ^ (y * 117) ^ (x * y * 7)) % 31
@@ -45,7 +46,7 @@ export function paintTown(scene: Phaser.Scene) {
       }
     }
   }
-  ground.draw(ink)
+  ground.batchDraw(ink)
   ink.clear()
 
   for (const [left, y, count] of GARDENS) {
@@ -53,7 +54,7 @@ export function paintTown(scene: Phaser.Scene) {
   }
   for (const [x, y, kind] of TREES) {
     ink.fillStyle(0x253b31, 0.2).fillEllipse(x * TILE + 9, y * TILE + 13, 23, 7)
-    ground.draw(ink)
+    ground.batchDraw(ink)
     ink.clear()
     tile(TREETOPS[kind], x, y - 1)
     tile(TRUNKS[kind], x, y)
@@ -69,7 +70,8 @@ export function paintTown(scene: Phaser.Scene) {
   }
 
   for (const district of DISTRICT_ORDER) paintWorkplace(ink, district)
-  ground.draw(ink)
+  ground.batchDraw(ink)
+  ground.endDraw()
   ink.destroy()
 
   for (const district of DISTRICT_ORDER) {

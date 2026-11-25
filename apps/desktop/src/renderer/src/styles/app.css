@@ -52,6 +52,15 @@ button {
   grid-template-rows: var(--topbar-height) minmax(0, 1fr) 0 var(--statusbar-height);
 }
 
+.app[data-town='true'] {
+  grid-template-columns: var(--activitybar-width) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr) var(--statusbar-height);
+  grid-template-areas:
+    'top top'
+    'activity editor'
+    'status status';
+}
+
 .topbar {
   grid-area: top;
   display: flex;

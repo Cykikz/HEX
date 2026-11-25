@@ -8,6 +8,7 @@ import {
   FolderOpen,
   History,
   KeyRound,
+  Map,
   PanelBottom,
   PanelRight,
   Plug,
@@ -36,6 +37,7 @@ import { ModelsScreen, type ModelsTab } from './features/models/ModelsScreen'
 import { MissionControl } from './features/missions/MissionControl'
 import { MissionList } from './features/missions/MissionList'
 import { NewMission } from './features/missions/NewMission'
+import { TownScreen } from './features/missions/town/TownScreen'
 import { NewPersona } from './features/agents/NewPersona'
 import { PersonaEditor } from './features/agents/PersonaEditor'
 import { PersonaList } from './features/agents/PersonaList'
@@ -62,11 +64,12 @@ import { useWorkspace } from './features/workspace/useWorkspace'
 import { useBackendHealth } from './hooks/useBackendHealth'
 import { useBackend } from './lib/backend'
 
-type View = 'explorer' | 'missions' | 'models' | 'observability' | 'agents' | 'skills' | 'plugins' | 'metrics' | 'experiments' | 'runs' | 'settings'
+type View = 'explorer' | 'missions' | 'models' | 'observability' | 'agents' | 'skills' | 'plugins' | 'metrics' | 'experiments' | 'runs' | 'town' | 'settings'
 
 const VIEWS: { id: View; label: string; icon: LucideIcon }[] = [
   { id: 'explorer', label: 'Explorer', icon: Files },
   { id: 'missions', label: 'Missions', icon: Rocket },
+  { id: 'town', label: 'Town', icon: Map },
   { id: 'models', label: 'Models & Keys', icon: KeyRound },
   { id: 'observability', label: 'Observability', icon: Activity },
   { id: 'agents', label: 'Agents', icon: Bot },
@@ -77,11 +80,12 @@ const VIEWS: { id: View; label: string; icon: LucideIcon }[] = [
   { id: 'runs', label: 'Runs', icon: History },
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
+const NUMBERED_VIEWS = VIEWS.filter(({ id }) => id !== 'town').slice(0, 9)
 
 const BOTTOM_TABS = ['Problems', 'Tasks', 'Agent Events', 'Logs'] as const
 type BottomTab = (typeof BOTTOM_TABS)[number]
 
-const SIDEBAR_EMPTY: Record<Exclude<View, 'explorer' | 'missions' | 'models' | 'observability' | 'agents' | 'skills' | 'plugins' | 'metrics' | 'experiments' | 'runs'>, string> = {
+const SIDEBAR_EMPTY: Record<Exclude<View, 'explorer' | 'missions' | 'models' | 'observability' | 'agents' | 'skills' | 'plugins' | 'metrics' | 'experiments' | 'runs' | 'town'>, string> = {
   settings: ''
 }
 
@@ -101,6 +105,7 @@ export function App() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [diffRunId, setDiffRunId] = useState<string | null>(null)
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null)
+  const [townSelection, setTownSelection] = useState<{ projectId: string; missionId: string } | null>(null)
   const [creatingMission, setCreatingMission] = useState(false)
   const [planningId, setPlanningId] = useState<string | null>(null)
   const team = useTeam(api)
@@ -180,13 +185,16 @@ export function App() {
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
-      ...VIEWS.map((v, i) => ({
-        id: `view-${v.id}`,
-        title: `Go to ${v.label}`,
-        group: 'Views',
-        shortcut: i < 9 ? `Mod+${i + 1}` : undefined,
-        run: () => setView(v.id)
-      })),
+      ...VIEWS.map((v) => {
+        const number = NUMBERED_VIEWS.indexOf(v) + 1
+        return {
+          id: `view-${v.id}`,
+          title: `Go to ${v.label}`,
+          group: 'Views',
+          shortcut: number ? `Mod+${number}` : undefined,
+          run: () => setView(v.id)
+        }
+      }),
       { id: 'open-folder', title: 'Open folder…', group: 'Project', shortcut: 'Mod+O', disabled: !connected, run: () => void workspace.pickAndOpen() },
       { id: 'new-mission', title: 'New mission', group: 'Project', keywords: 'build idea plan', disabled: !project, run: startMission },
       { id: 'run-app', title: 'Run the app and get a link', group: 'Project', keywords: 'start launch preview localhost', disabled: !project, run: () => askChat('run it', 'Starting the app in the sandbox…') },
@@ -240,9 +248,10 @@ export function App() {
         : ''
 
   const viewLabel = VIEWS.find((v) => v.id === view)?.label ?? ''
+  const inTown = view === 'town'
 
   return (
-    <div className="app" data-right={rightOpen} data-bottom={bottomOpen}>
+    <div className="app" data-town={inTown} data-right={rightOpen} data-bottom={bottomOpen}>
       <header className="topbar">
         <div className="topbar__brand">
           <BrandMark />
@@ -272,6 +281,7 @@ export function App() {
         </div>
         <div className="topbar__actions">
           <BackendStatusPill status={status} onRetry={retry} />
+          {!inTown && <>
           <button
             type="button"
             className="icon-button"
@@ -292,6 +302,7 @@ export function App() {
           >
             <PanelRight size={16} />
           </button>
+          </>}
         </div>
       </header>
 
@@ -311,7 +322,7 @@ export function App() {
         ))}
       </nav>
 
-      <aside className="sidebar" aria-label={viewLabel}>
+      {!inTown && <aside className="sidebar" aria-label={viewLabel}>
         {view === 'explorer' ? (
           <>
             <PanelHeader
@@ -441,10 +452,25 @@ export function App() {
             )}
           </>
         )}
-      </aside>
+      </aside>}
 
       <main className="editor">
-        {diffRunId ? (
+        {inTown ? (
+          <TownScreen
+            api={api}
+            config={config}
+            projectId={connected ? project?.id ?? null : null}
+            missionId={project && townSelection?.projectId === project.id ? townSelection.missionId : null}
+            onSelectMission={(id) => setTownSelection(id && project ? { projectId: project.id, missionId: id } : null)}
+            onOpenMission={(id) => {
+              setDiffRunId(null)
+              setCreatingMission(false)
+              setPlanningId(null)
+              setSelectedMissionId(id)
+              setView('missions')
+            }}
+          />
+        ) : diffRunId ? (
           <DiffView api={api} runId={diffRunId} onClose={() => setDiffRunId(null)} />
         ) : view === 'models' ? (
           <ModelsScreen api={api} tab={modelsTab} />
@@ -473,6 +499,10 @@ export function App() {
               config={config}
               missionId={selectedMissionId}
               onChanged={() => setMissionsRefresh((n) => n + 1)}
+              onOpenTown={(mission) => {
+                setTownSelection({ projectId: mission.project_id, missionId: mission.id })
+                setView('town')
+              }}
             />
           ) : (
             <EmptyState title={project ? 'Pick a mission, or start a new one' : 'Open a workspace to start a mission'} />
@@ -565,7 +595,7 @@ export function App() {
         )}
       </main>
 
-      {rightOpen && (
+      {rightOpen && !inTown && (
         <aside className="rightpanel" aria-label="Agent chat">
           <ChatPanel
             chat={chat}
@@ -577,7 +607,7 @@ export function App() {
         </aside>
       )}
 
-      {bottomOpen && (
+      {bottomOpen && !inTown && (
         <section className="bottompanel" aria-label="Panels">
           <div className="tabs" role="tablist">
             {BOTTOM_TABS.map((tab) => (

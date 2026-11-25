@@ -13,7 +13,6 @@ import { ActivityFeed, TeamRoster } from './TeamRoster'
 import { ValidationPanel } from './ValidationPanel'
 import { FeatureTree } from './FeatureTree'
 import { NeedsYou } from './NeedsYou'
-import { MissionMap } from './MissionMap'
 import {
   actionsFor,
   activeFeature,
@@ -40,11 +39,12 @@ interface Props {
   missionId: string
   /** Tell the mission list its row changed (status, title). */
   onChanged?: () => void
+  onOpenTown?: (mission: Mission) => void
 }
 
-export function MissionControl({ api, config, missionId, onChanged }: Props) {
+export function MissionControl({ api, config, missionId, onChanged, onOpenTown }: Props) {
   const view = useMission(api, config, missionId)
-  return <MissionScreen api={api} view={view} onChanged={onChanged} />
+  return <MissionScreen api={api} view={view} onChanged={onChanged} onOpenTown={onOpenTown} />
 }
 
 const CONNECTION_LABEL = {
@@ -58,17 +58,17 @@ const CONNECTION_LABEL = {
 export function MissionScreen({
   api,
   view,
-  onChanged
+  onChanged,
+  onOpenTown
 }: {
   api: ApiClient
   view: MissionView
   onChanged?: () => void
+  onOpenTown?: (mission: Mission) => void
 }) {
   const { mission, events, needs, checkpoints, connection, error } = view
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [mapOpen, setMapOpen] = useState(false)
-  const reviewButton = useRef<HTMLButtonElement>(null)
   const now = useNow(mission?.status === 'running')
 
   if (!mission) {
@@ -103,11 +103,6 @@ export function MissionScreen({
 
   const stop = () => {
     if (window.confirm('Stop this mission? Work in progress is dropped.')) void act('stop')
-  }
-
-  const reviewDiff = () => {
-    reviewButton.current?.focus()
-    reviewButton.current?.click()
   }
 
   return (
@@ -196,9 +191,9 @@ export function MissionScreen({
             <Square size={14} aria-hidden="true" /> Stop
           </button>
         )}
-        <button type="button" className="button button--small" aria-expanded={mapOpen} onClick={() => setMapOpen((open) => !open)}>
-          {mapOpen ? 'Hide agent map' : 'Show agent map'}
-        </button>
+        {onOpenTown && (
+          <button type="button" className="button button--small" onClick={() => onOpenTown(mission)}>Open in Town</button>
+        )}
       </div>
       {(actionError || error) && (
         <p role="alert" className="mission__error">
@@ -207,20 +202,11 @@ export function MissionScreen({
       )}
 
       <NeedsYou api={api} needs={needs} onAnswered={adopt} />
-      {actions.review && <ApplyPanel api={api} mission={mission} onChanged={adopt} reviewButtonRef={reviewButton} />}
+      {actions.review && <ApplyPanel api={api} mission={mission} onChanged={adopt} />}
       {mission.status === 'applied' && (
         <HandoffPanel api={api} projectId={mission.project_id} projectName={mission.title} />
       )}
 
-      {mapOpen && (
-        <MissionMap
-          key={mission.id}
-          mission={mission}
-          events={events}
-          now={now}
-          onReview={actions.review ? reviewDiff : undefined}
-        />
-      )}
       <TeamRoster events={events} active={mission.status === 'running'} />
 
       <div className="mission__body">

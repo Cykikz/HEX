@@ -26,7 +26,7 @@ export interface MissionView {
  * authoritative state (spend, Needs you, checkpoints) is fetched once, shortly after. Nothing here
  * polls.
  */
-export function useMission(api: ApiClient, config: BackendConfig, missionId: string | null): MissionView {
+export function useMission(api: ApiClient, config: BackendConfig, missionId: string | null, scope: 'full' | 'map' = 'full'): MissionView {
   const [mission, setMission] = useState<Mission | null>(null)
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [needs, setNeeds] = useState<Need[]>([])
@@ -51,6 +51,14 @@ export function useMission(api: ApiClient, config: BackendConfig, missionId: str
 
     const load = async () => {
       try {
+        if (scope === 'map') {
+          const fresh = await api.get<Mission>(`/missions/${missionId}`)
+          if (!cancelled) {
+            setMission(fresh)
+            setError(null)
+          }
+          return
+        }
         const [fresh, openNeeds, points] = await Promise.all([
           api.get<Mission>(`/missions/${missionId}`),
           api.get<Need[]>(`/missions/${missionId}/needs`),
@@ -81,7 +89,7 @@ export function useMission(api: ApiClient, config: BackendConfig, missionId: str
       listener: {
         onSnapshot: (snapshot) => {
           setMission(snapshot)
-          scheduleRefresh() // the snapshot has no Needs you or checkpoint lists
+          if (scope === 'full') scheduleRefresh() // the snapshot has no Needs you or checkpoint lists
         },
         onEvents: (incoming) => {
           setEvents((known) => known.concat(incoming))
@@ -97,7 +105,7 @@ export function useMission(api: ApiClient, config: BackendConfig, missionId: str
       clearTimeout(timer)
       stream.stop()
     }
-  }, [api, config.url, config.token, missionId])
+  }, [api, config.url, config.token, missionId, scope])
 
   const adopt = useCallback((fresh: Mission) => {
     setMission(fresh)
